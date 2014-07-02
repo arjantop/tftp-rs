@@ -1,0 +1,19 @@
+[package]
+
+name = "tftp"
+version = "0.1.0-pre"
+authors = ["arjan.top@gmail.com"]
+
+[[lib]]
+
+name = "tftp"
+path = "src/tftp/lib.rs"
+
+[[bin]]
+
+name = "client-get"
+path = "examples/client/get.rs"
+
+[dependencies.quickcheck]
+
+git = "https://github.com/BurntSushi/quickcheck.git"
