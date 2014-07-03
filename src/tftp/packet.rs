@@ -314,9 +314,8 @@ impl<'a> DecodePacket<'a> for AckPacket {
 impl EncodePacket for AckPacket {
     fn encode_using(&self, mut buf: Vec<u8>) -> RawPacket {
         {
-            let mut w = BufWriter::new(buf.as_mut_slice());
-            w.write_be_u16(ACK as u16);
-            w.write_be_u16(self.block_id);
+            write_be_u16(buf.as_mut_slice(), ACK as u16);
+            write_be_u16(buf.as_mut_slice().mut_slice_from(2), self.block_id);
         }
         RawPacket{
             buf: buf,
@@ -465,6 +464,15 @@ fn read_be_u16(data: &[u8]) -> Option<u16> {
         (Some(x1), Some(x2)) => Some(*x1 as u16 << 8 | *x2 as u16),
         _ => None
     }
+}
+
+fn write_be_u16(data: &mut [u8], x: u16) -> Option<()> {
+    if data.len() < 2 {
+        return None
+    }
+    *data.get_mut(0).unwrap() = (x >> 8) as u8;
+    *data.get_mut(1).unwrap() = x as u8;
+    Some(())
 }
 
 #[cfg(test)]
