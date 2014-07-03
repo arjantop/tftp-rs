@@ -1,6 +1,7 @@
 //! A Trivial File Transfer (TFTP) protocol client implementation.
 //!
 //! This module contains the ability to read data from or write data to a remote TFTP server.
+use std::io;
 use std::io::{IoResult};
 use std::io::net::ip::{SocketAddr, Ipv4Addr};
 use std::io::net::udp::UdpSocket;
@@ -123,7 +124,7 @@ impl Client {
                                         println!("done");
                                         break
                                     }
-                                    let bytes_read = try!(reader.read(read_buffer.as_mut_slice()));
+                                    let bytes_read = try!(self.read_block(reader, read_buffer.as_mut_slice()));
                                     if bytes_read < MAX_DATA_SIZE {
                                         last_packet = true;
                                     }
@@ -146,5 +147,15 @@ impl Client {
             }
         }
         return Ok(())
+    }
+
+    fn read_block(&mut self, reader: &mut Reader, buf: &mut [u8]) -> IoResult<uint> {
+        reader.read(buf).or_else(|e| {
+            if e.kind == io::EndOfFile {
+                Ok(0u)
+            } else {
+                Err(e)
+            }
+        })
     }
 }
