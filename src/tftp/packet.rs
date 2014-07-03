@@ -462,7 +462,7 @@ mod test {
 
     use self::quickcheck::{quickcheck, Arbitrary, Gen};
 
-    use super::{Octet, Packet, EncodePacket, DecodePacket};
+    use super::{Octet, EncodePacket, DecodePacket};
     use super::{RequestPacket, AckPacket, DataPacketOctet};
 
     impl Arbitrary for AckPacket {
@@ -547,8 +547,6 @@ mod test {
 #[cfg(test)]
 mod bench {
     extern crate test;
-
-    use std::str::IntoMaybeOwned;
 
     use self::test::{Bencher, black_box};
 

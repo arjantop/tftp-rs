@@ -38,14 +38,14 @@ impl Client {
 
         let read_request = ReadRequest(to_netascii(path.as_str().expect("utf-8 path")), mode);
         let encoded = read_request.encode_using(bufs.pop().unwrap());
-        try!(self.socket.sendto(encoded.packet_buf(), self.remote_addr));
+        try!(self.socket.send_to(encoded.packet_buf(), self.remote_addr));
 
         bufs.push(encoded.get_buffer());
         let mut first_packet = true;
         let mut current_id = 1;
         loop {
             let mut buf = bufs.pop().unwrap();
-            match self.socket.recvfrom(buf.as_mut_slice()) {
+            match self.socket.recv_from(buf.as_mut_slice()) {
                 Ok((n, from)) => {
                     if first_packet && self.remote_addr.ip == from.ip {
                         self.remote_addr.port = from.port;
@@ -65,7 +65,7 @@ impl Client {
                                     let ack = AckPacket::new(dp.block_id());
                                     let buf = bufs.pop().unwrap();
                                     let encoded = ack.encode_using(buf);
-                                    try!(self.socket.sendto(encoded.packet_buf(), self.remote_addr));
+                                    try!(self.socket.send_to(encoded.packet_buf(), self.remote_addr));
                                     if dp.data().len() < MAX_DATA_SIZE {
                                         println!("done");
                                         break;
