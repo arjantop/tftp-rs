@@ -1,6 +1,6 @@
 # tftp-rs
 
-High performance Triavial File Transfer Protocol (TFTP) library for Rust
+High performance Trivial File Transfer Protocol (TFTP) library for Rust
 
 ## RFCs implemented:
 

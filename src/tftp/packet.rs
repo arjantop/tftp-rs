@@ -2,7 +2,7 @@
 extern crate graphviz;
 
 use std::fmt;
-use std::from_str;
+use std::from_str::FromStr;
 use std::str;
 use std::str::MaybeOwned;
 use std::io::BufWriter;
@@ -63,32 +63,21 @@ pub enum Mode {
 
 impl Mode {
     /// Converts a transfer mode into string representation.
-    pub fn into_string(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match *self {
             NetAscii => "netascii",
             Octet => "octet"
-        }
-    }
-
-    /// Converts a transfer mode from a string representaion.
-    ///
-    /// If string value is invalid `None` is returned.
-    pub fn from_string(mode: &str) -> Option<Mode> {
-        match mode {
-            "netascii" => Some(NetAscii),
-            "octet" => Some(Octet),
-            _ => None
         }
     }
 }
 
 impl fmt::Show for Mode {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.write(self.into_string().as_bytes())
+        fmt.write(self.as_str().as_bytes())
     }
 }
 
-impl from_str::FromStr for Mode {
+impl FromStr for Mode {
     fn from_str(s: &str) -> Option<Mode> {
         match s {
             "netascii" => Some(NetAscii),
@@ -240,7 +229,7 @@ impl<'a> Packet for RequestPacket<'a> {
     }
 
     fn len(&self) -> uint {
-        2 + self.filename_raw().len() + 1 + self.mode().into_string().len() + 1
+        2 + self.filename_raw().len() + 1 + self.mode().as_str().len() + 1
     }
 }
 
@@ -252,7 +241,7 @@ impl<'a> DecodePacket<'a> for RequestPacket<'a> {
         }
         str::from_utf8(data.slice_from(2)).map(|s| s.split('\0')).and_then(|mut parts| {
             let filename = parts.next().map(|s| s.into_maybe_owned());
-            let mode = parts.next().and_then(Mode::from_string);
+            let mode = parts.next().and_then(FromStr::from_str);
             match (filename, mode) {
                 (Some(filename), Some(mode)) => {
                     if opcode.unwrap() == RRQ {
@@ -274,7 +263,7 @@ impl<'a> EncodePacket for RequestPacket<'a> {
             w.write_be_u16(self.opcode() as u16);
             w.write_str(self.filename_raw());
             w.write_u8(0);
-            w.write_str(self.mode().into_string());
+            w.write_str(self.mode().as_str());
             w.write_u8(0);
         }
         RawPacket{

@@ -26,10 +26,10 @@ pub fn from_netascii<'a>(s: &'a str) -> Option<MaybeOwned<'a>> {
     loop {
         let next = chars.next();
         match next {
-            Some(c) if c == '\r' => {
+            Some('\r') => {
                 match chars.next() {
-                    Some(e) if e == '\n' => decoded.push_char('\n'),
-                    Some(e) if e == '\0' => decoded.push_char('\r'),
+                    Some('\n') => decoded.push_char('\n'),
+                    Some('\0') => decoded.push_char('\r'),
                     _ => return None
                 }
             }
