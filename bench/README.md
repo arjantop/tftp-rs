@@ -19,7 +19,7 @@ Build the library first:
 cargo build
 ```
 
-Then run the benchmark (this will benchmark the client using and `octet` transfer mode
+Then run the benchmark (this will benchmark the client using an `octet` transfer mode
 and `get` request type):
 
 ```
