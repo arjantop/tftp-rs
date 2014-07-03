@@ -7,7 +7,7 @@ use std::str;
 use std::str::MaybeOwned;
 use std::io::BufWriter;
 
-use self::graphviz::maybe_owned_vec::{MaybeOwnedVector, IntoMaybeOwnedVector};
+use self::graphviz::maybe_owned_vec::{MaybeOwnedVector, Growable, IntoMaybeOwnedVector};
 
 use netascii::{NetasciiString, to_netascii, from_netascii};
 
@@ -330,6 +330,7 @@ impl EncodePacket for AckPacket {
 pub struct DataPacketOctet<'a> {
     block_id: u16,
     data: MaybeOwnedVector<'a, u8>,
+    len: uint,
 }
 
 impl<'a> DataPacketOctet<'a> {
@@ -337,15 +338,17 @@ impl<'a> DataPacketOctet<'a> {
     pub fn from_slice<'a>(block_id: u16, data: &'a [u8]) -> DataPacketOctet<'a> {
         DataPacketOctet{
             block_id: block_id,
-            data: data.into_maybe_owned()
+            data: data.into_maybe_owned(),
+            len: data.len()
         }
     }
 
     /// Creates a data packet with a given id from a given vector.
-    pub fn from_vec(block_id: u16, data: Vec<u8>) -> DataPacketOctet<'static> {
+    pub fn from_vec(block_id: u16, data: Vec<u8>, len: uint) -> DataPacketOctet<'static> {
         DataPacketOctet{
             block_id: block_id,
-            data: data.into_maybe_owned()
+            data: data.into_maybe_owned(),
+            len: len
         }
     }
 
@@ -356,7 +359,17 @@ impl<'a> DataPacketOctet<'a> {
 
     /// Returns the slice of bytes contained in this packet.
     pub fn data<'a>(&'a self) -> &'a [u8] {
-        self.data.as_slice()
+        self.data.as_slice().slice_to(self.len)
+    }
+
+    /// Tries to move the buffer out of this object and returns it, consuming the `RawPacket`.
+    ///
+    /// Returns `None` if contained buffer is a slice.
+    pub fn get_buffer(self) -> Option<Vec<u8>> {
+        match self.data {
+            Growable(v) => Some(v),
+            _ => None
+        }
     }
 }
 
@@ -474,8 +487,9 @@ mod test {
     impl Arbitrary for DataPacketOctet<'static> {
         fn arbitrary<G: Gen>(g: &mut G) -> DataPacketOctet {
             let size = g.gen_range(0u, 512);
-            let data = g.gen_iter::<u8>().take(size).collect();
-            DataPacketOctet::from_vec(g.gen(), data)
+            let data: Vec<_> = g.gen_iter::<u8>().take(size).collect();
+            let len = data.len();
+            DataPacketOctet::from_vec(g.gen(), data, len)
         }
     }
 
@@ -529,7 +543,7 @@ mod test {
 
     #[test]
     fn packet_data_octet_is_encoded() {
-        let packet = DataPacketOctet::from_vec(10, vec![1u8, 2, 3, 4, 5]);
+        let packet = DataPacketOctet::from_vec(10, vec![1u8, 2, 3, 4, 5], 5);
         let raw_packet = packet.encode();
         let expected = vec![0, 3, 0, 10, 1, 2, 3, 4, 5];
         assert_eq!(expected.as_slice(), raw_packet.packet_buf());
