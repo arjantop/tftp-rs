@@ -8,6 +8,16 @@ if [ ! -d fixtures ]; then
     exit 1
 fi
 
+if [ $# -ne 1 ]; then
+    echo "Usage: $0 TRANSFER_MODE REQUEST_TYPE"
+    exit 1
+fi
+
+if [ "$1" != "octet" ] && [ "$1" != "netascii" ]; then
+    echo "Transfer mode must be 'octet' or 'netascii'"
+    exit 1
+fi
+
 for file in `ls fixtures`
 do
     echo "Getting file: [0;32m$file[0m"
