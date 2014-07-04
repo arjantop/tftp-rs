@@ -14,6 +14,6 @@ path = "src/tftp/lib.rs"
 name = "client-get"
 path = "examples/client/get.rs"
 
-[dependencies.quickcheck]
+[dev-dependencies.quickcheck]
 
 git = "https://github.com/BurntSushi/quickcheck.git"
