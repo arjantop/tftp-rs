@@ -9,10 +9,15 @@ authors = ["arjan.top@gmail.com"]
 name = "tftp"
 path = "src/tftp/lib.rs"
 
-[[bin]]
-
-name = "client-get"
-path = "examples/client/get.rs"
+#[[bin]]
+#
+#name = "client-get"
+#path = "examples/client/get.rs"
+#
+#[[bin]]
+#
+#name = "client-put"
+#path = "examples/client/put.rs"
 
 [dev-dependencies.quickcheck]
 
