@@ -236,7 +236,7 @@ impl<'a> Packet for RequestPacket<'a> {
 impl<'a> DecodePacket<'a> for RequestPacket<'a> {
     fn decode(data: &'a [u8]) -> Option<RequestPacket<'a>> {
         let opcode = read_be_u16(data).and_then(Opcode::from_u16);
-        if opcode != Some(RRQ) || opcode != Some(WRQ) {
+        if opcode != Some(RRQ) && opcode != Some(WRQ) {
             return None
         }
         str::from_utf8(data.slice_from(2)).map(|s| s.split('\0')).and_then(|mut parts| {
@@ -481,10 +481,25 @@ mod test {
 
     use std::rand::Rng;
 
+    use super::graphviz::maybe_owned_vec::IntoMaybeOwnedVector;
+
     use self::quickcheck::{quickcheck, Arbitrary, Gen};
 
-    use super::{Octet, EncodePacket, DecodePacket};
-    use super::{RequestPacket, AckPacket, DataPacketOctet};
+    use super::{Octet, NetAscii, EncodePacket, DecodePacket};
+    use super::{RequestPacket, ReadRequest, WriteRequest, AckPacket, DataPacketOctet};
+
+    impl Arbitrary for RequestPacket<'static> {
+        fn arbitrary<G: Gen>(g: &mut G) -> RequestPacket {
+            let transfer_type = if g.gen() { Octet } else { NetAscii };
+            let str_len = g.gen::<uint>() % 20;
+            let filename: String = g.gen_ascii_chars().take(str_len).collect();
+            if g.gen() {
+                ReadRequest(filename.into_maybe_owned(), transfer_type)
+            } else {
+                WriteRequest(filename.into_maybe_owned(), transfer_type)
+            }
+        }
+    }
 
     impl Arbitrary for AckPacket {
         fn arbitrary<G: Gen>(g: &mut G) -> AckPacket {
@@ -531,6 +546,22 @@ mod test {
         let raw_packet = packet.encode();
         let expected = b"\x00\x02foo\r\nbar\0octet\0";
         assert_eq!(expected, raw_packet.packet_buf());
+    }
+
+    #[test]
+    fn request_packet_with_netascii_mode_is_encoded() {
+        let packet = RequestPacket::read_request("na", NetAscii);
+        let raw_packet = packet.encode();
+        let expected = b"\x00\x01na\0netascii\0";
+        assert_eq!(expected, raw_packet.packet_buf());
+    }
+
+    #[test]
+    fn encoding_and_decoding_request_packet_is_identity() {
+        fn prop(packet: RequestPacket<'static>)  -> bool {
+            Some(packet.clone()) == packet.encode().decode()
+        }
+        quickcheck(prop)
     }
 
     #[test]
