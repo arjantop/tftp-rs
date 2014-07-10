@@ -260,11 +260,11 @@ impl<'a> EncodePacket for RequestPacket<'a> {
     fn encode_using(&self, mut buf: Vec<u8>) -> RawPacket {
         {
             let mut w = BufWriter::new(buf.as_mut_slice());
-            w.write_be_u16(self.opcode() as u16);
-            w.write_str(self.filename_raw());
-            w.write_u8(0);
-            w.write_str(self.mode().as_str());
-            w.write_u8(0);
+            w.write_be_u16(self.opcode() as u16).unwrap();
+            w.write_str(self.filename_raw()).unwrap();
+            w.write_u8(0).unwrap();
+            w.write_str(self.mode().as_str()).unwrap();
+            w.write_u8(0).unwrap();
         }
         RawPacket{
             buf: buf,
@@ -400,9 +400,71 @@ impl<'a> EncodePacket for DataPacketOctet<'a> {
     fn encode_using(&self, mut buf: Vec<u8>) -> RawPacket {
         {
             let mut w = BufWriter::new(buf.as_mut_slice());
-            w.write_be_u16(DATA as u16);
-            w.write_be_u16(self.block_id);
-            w.write(self.data.as_slice());
+            w.write_be_u16(DATA as u16).unwrap();
+            w.write_be_u16(self.block_id).unwrap();
+            w.write(self.data.as_slice()).unwrap();
+        }
+        RawPacket{
+            buf: buf,
+            len: self.len()
+        }
+    }
+}
+
+/// Packet representing an error
+#[deriving(Show, Eq, PartialEq, Clone)]
+pub struct ErrorPacket<'a> {
+    error: Error,
+    message: NetasciiString<'a>,
+}
+
+impl<'a> ErrorPacket<'a> {
+    /// Creates and error packet with a chosen error and a message describing the
+    /// cause of the error.
+    pub fn new(error: Error, msg: &'a str) -> ErrorPacket<'a> {
+        ErrorPacket{
+            error: error,
+            message: to_netascii(msg)
+        }
+    }
+}
+
+impl<'a> Packet for ErrorPacket<'a> {
+    fn opcode(&self) -> Opcode {
+        ERROR
+    }
+
+    fn len(&self) -> uint {
+        4 + self.message.len() + 1
+    }
+}
+
+impl<'a> DecodePacket<'a> for ErrorPacket<'a> {
+    fn decode(data: &'a [u8]) -> Option<ErrorPacket<'a>> {
+        let opcode = read_be_u16(data).and_then(Opcode::from_u16);
+        match opcode {
+            Some(ERROR) => {
+                let error = read_be_u16(data.slice_from(2)).and_then(Error::from_u16);
+                let msg = str::from_utf8(data.slice_from(4)).map(|s| s.split('\0'))
+                                                            .and_then(|mut i| i.next());
+                match (error, msg) {
+                    (Some(error), Some(msg)) => Some(ErrorPacket::new(error, msg)),
+                    _ => None
+                }
+            }
+            _ => None
+        }
+    }
+}
+
+impl<'a> EncodePacket for ErrorPacket<'a> {
+    fn encode_using(&self, mut buf: Vec<u8>) -> RawPacket {
+        {
+            let mut w = BufWriter::new(buf.as_mut_slice());
+            w.write_be_u16(ERROR as u16).unwrap();
+            w.write_be_u16(self.error  as u16).unwrap();
+            w.write_str(self.message.as_slice()).unwrap();
+            w.write_u8(0).unwrap();
         }
         RawPacket{
             buf: buf,
@@ -486,12 +548,14 @@ mod test {
     use self::quickcheck::{quickcheck, Arbitrary, Gen};
 
     use super::{Octet, NetAscii, EncodePacket, DecodePacket};
-    use super::{RequestPacket, ReadRequest, WriteRequest, AckPacket, DataPacketOctet};
+    use super::{Error, FileNotFound, DiskFull};
+    use super::{RequestPacket, ReadRequest, WriteRequest, AckPacket, DataPacketOctet,
+                ErrorPacket};
 
     impl Arbitrary for RequestPacket<'static> {
         fn arbitrary<G: Gen>(g: &mut G) -> RequestPacket {
             let transfer_type = if g.gen() { Octet } else { NetAscii };
-            let str_len = g.gen::<uint>() % 20;
+            let str_len = g.gen_range(0u, 50);
             let filename: String = g.gen_ascii_chars().take(str_len).collect();
             if g.gen() {
                 ReadRequest(filename.into_maybe_owned(), transfer_type)
@@ -513,6 +577,18 @@ mod test {
             let data: Vec<_> = g.gen_iter::<u8>().take(size).collect();
             let len = data.len();
             DataPacketOctet::from_vec(g.gen(), data, len)
+        }
+    }
+
+    impl Arbitrary for ErrorPacket<'static> {
+        fn arbitrary<G: Gen>(g: &mut G) -> ErrorPacket {
+            let error = Error::from_u16(g.gen_range(0, 8)).unwrap();
+            let msg_len = g.gen_range(0u, 50);
+            let message: String = g.gen_ascii_chars().take(msg_len).collect();
+            ErrorPacket{
+                error: error,
+                message: message.into_maybe_owned()
+            }
         }
     }
 
@@ -595,6 +671,30 @@ mod test {
         }
         quickcheck(prop)
     }
+
+    #[test]
+    fn packet_error_is_encoded() {
+        let packet = ErrorPacket::new(FileNotFound, "message");
+        let raw_packet = packet.encode();
+        let expected = b"\x00\x05\x00\x01message\x00";
+        assert_eq!(expected, raw_packet.packet_buf())
+    }
+
+    #[test]
+    fn packet_error_with_netascii_is_encoded() {
+        let packet = ErrorPacket::new(DiskFull, "me\rssage\n");
+        let raw_packet = packet.encode();
+        let expected = b"\x00\x05\x00\x03me\r\0ssage\r\n\x00";
+        assert_eq!(expected, raw_packet.packet_buf())
+    }
+
+    #[test]
+    fn encoding_and_decoding_packet_error_is_identity() {
+        fn prop(packet: ErrorPacket<'static>) -> bool {
+            Some(packet.clone()) == packet.encode().decode()
+        }
+        quickcheck(prop)
+    }
 }
 
 #[cfg(test)]
@@ -603,8 +703,8 @@ mod bench {
 
     use self::test::{Bencher, black_box};
 
-    use super::{Octet, EncodePacket};
-    use super::{RequestPacket, AckPacket, DataPacketOctet};
+    use super::{Octet, EncodePacket, FileNotFound};
+    use super::{RequestPacket, AckPacket, DataPacketOctet, ErrorPacket};
 
     #[bench]
     fn decode_read_request(b: &mut Bencher) {
@@ -682,5 +782,27 @@ mod bench {
             }
         });
         b.bytes = (raw_packet.len() * N) as u64;
+    }
+
+    #[bench]
+    fn decode_error(b: &mut Bencher) {
+        let message = "This is some error message";
+        let raw_packet = ErrorPacket::new(FileNotFound, message).encode();
+        b.iter(|| {
+            let ack: Option<DataPacketOctet> = raw_packet.decode();
+            black_box(ack)
+        });
+        b.bytes = raw_packet.len() as u64;
+    }
+
+    #[bench]
+    fn encode_error(b: &mut Bencher) {
+        let message = "This is some error message";
+        let packet = ErrorPacket::new(FileNotFound, message);
+        let raw_packet = packet.encode();
+        b.iter(|| {
+            black_box(packet.encode())
+        });
+        b.bytes = raw_packet.len() as u64;
     }
 }
