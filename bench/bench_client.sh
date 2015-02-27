@@ -32,7 +32,7 @@ do
         /usr/bin/time "$TFTP_BIN" -v 127.0.0.1 69 -m octet -c get "$file" /tmp/testfile
         echo "Using: [0;34mtftp-rs[0m"
         sleep 1
-        /usr/bin/time ../target/release/client-get "$file"
+        /usr/bin/time ../target/release/examples/client-get "$file"
     else
         echo "Putting file: [0;32m$file[0m"
         echo "Using: [0;31mtftp-hpa[0m"
@@ -40,6 +40,6 @@ do
         /usr/bin/time "$TFTP_BIN" -v 127.0.0.1 69 -m octet -c put "fixtures/$file" testfile
         echo "Using: [0;34mtftp-rs[0m"
         sleep 1
-        /usr/bin/time ../target/release/client-put "fixtures/$file"
+        /usr/bin/time ../target/release/examples/client-put "fixtures/$file"
     fi
 done

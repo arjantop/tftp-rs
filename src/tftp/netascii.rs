@@ -1,8 +1,8 @@
 //! Netascii string utilities.
-use std::str::{MaybeOwned, IntoMaybeOwned};
+use std::borrow::{Cow, IntoCow};
 
 /// Netascii encoded string
-pub type NetasciiString<'a> = MaybeOwned<'a>;
+pub type NetasciiString<'a> = Cow<'a, str>;
 
 fn is_escape_required(s: &str) -> bool {
     s.chars().any(|c| c == '\r' || c == '\n')
@@ -17,9 +17,9 @@ fn is_escape_required(s: &str) -> bool {
 /// returned.
 ///
 /// Returns `None` if the input string contains invalid scape sequence.
-pub fn from_netascii<'a>(s: &'a str) -> Option<MaybeOwned<'a>> {
+pub fn from_netascii<'a>(s: &'a str) -> Option<Cow<'a, str>> {
     if !is_escape_required(s) {
-        return Some(s.into_maybe_owned())
+        return Some(s.into_cow())
     }
     let mut decoded = String::new();
     let mut chars = s.chars();
@@ -28,16 +28,16 @@ pub fn from_netascii<'a>(s: &'a str) -> Option<MaybeOwned<'a>> {
         match next {
             Some('\r') => {
                 match chars.next() {
-                    Some('\n') => decoded.push_char('\n'),
-                    Some('\0') => decoded.push_char('\r'),
+                    Some('\n') => decoded.push('\n'),
+                    Some('\0') => decoded.push('\r'),
                     _ => return None
                 }
             }
-            Some(c) => decoded.push_char(c),
+            Some(c) => decoded.push(c),
             None => break
         }
     }
-    return Some(decoded.into_maybe_owned())
+    return Some(decoded.into_cow())
 }
 
 /// Coverts a string slice into netascii encoded string without performing any
@@ -48,22 +48,22 @@ pub fn from_netascii<'a>(s: &'a str) -> Option<MaybeOwned<'a>> {
 /// If escaping is required new string is allocated, escaped and returned.
 pub fn to_netascii<'a>(s: &'a str) -> NetasciiString<'a> {
     if !is_escape_required(s) {
-        return s.into_maybe_owned()
+        return s.into_cow()
     }
     let mut encoded = String::new();
     for c in s.chars() {
         match c {
             '\n' => encoded.push_str("\r\n"),
             '\r' => encoded.push_str("\r\0"),
-            _ => encoded.push_char(c)
+            _ => encoded.push(c)
         }
     }
-    return encoded.into_maybe_owned()
+    return encoded.into_cow()
 }
 
 #[cfg(test)]
 mod test {
-    use std::str::IntoMaybeOwned;
+    use std::borrow::IntoCow;
 
     use super::{from_netascii, to_netascii};
 
@@ -75,49 +75,49 @@ mod test {
     #[test]
     fn from_netascii_newline_is_unescaped() {
         let decoded = from_netascii("\r\n");
-        assert_eq!(Some("\n".into_maybe_owned()), decoded);
+        assert_eq!(Some("\n".into_cow()), decoded);
     }
 
     #[test]
     fn from_netascii_carriage_return_is_unescaped() {
         let decoded = from_netascii("\r\0");
-        assert_eq!(Some("\r".into_maybe_owned()), decoded);
+        assert_eq!(Some("\r".into_cow()), decoded);
     }
 
     #[test]
     fn from_netascii_string_with_escaping() {
         let decoded = from_netascii(TEXT_NETASCII);
-        assert_eq!(Some(TEXT_NORMAL.into_maybe_owned()), decoded);
+        assert_eq!(Some(TEXT_NORMAL.into_cow()), decoded);
     }
 
     #[test]
     fn from_netascii_string_without_escaping() {
         let decoded = from_netascii(TEXT_NOESCAPE);
-        assert_eq!(Some(TEXT_NOESCAPE.into_maybe_owned()), decoded);
+        assert_eq!(Some(TEXT_NOESCAPE.into_cow()), decoded);
     }
 
     #[test]
     fn to_netascii_newline_is_escaped() {
         let decoded = to_netascii("\n");
-        assert_eq!("\r\n".into_maybe_owned(), decoded);
+        assert_eq!("\r\n".into_cow(), decoded);
     }
 
     #[test]
     fn to_netascii_carriage_return_is_escaped() {
         let decoded = to_netascii("\r");
-        assert_eq!("\r\0".into_maybe_owned(), decoded);
+        assert_eq!("\r\0".into_cow(), decoded);
     }
 
     #[test]
     fn to_netascii_string_with_escaping() {
         let decoded = to_netascii(TEXT_NORMAL);
-        assert_eq!(TEXT_NETASCII.into_maybe_owned(), decoded);
+        assert_eq!(TEXT_NETASCII.into_cow(), decoded);
     }
 
     #[test]
     fn to_netascii_string_without_escaping() {
         let decoded = to_netascii(TEXT_NOESCAPE);
-        assert_eq!(TEXT_NOESCAPE.into_maybe_owned(), decoded);
+        assert_eq!(TEXT_NOESCAPE.into_cow(), decoded);
     }
 }
 

@@ -14,8 +14,9 @@
 //! - RFC 1350 - TFTP Protocol (revision 2) (http://tools.ietf.org/html/rfc1350)
 
 #![crate_name = "tftp"]
-#![license = "MIT/ASL2"]
 #![crate_type = "lib"]
+
+#![feature(macro_rules)]
 
 pub mod packet;
 pub mod netascii;

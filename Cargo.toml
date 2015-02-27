@@ -4,21 +4,23 @@ name = "tftp"
 version = "0.1.0-pre"
 authors = ["arjan.top@gmail.com"]
 
-[[lib]]
+[lib]
 
 name = "tftp"
 path = "src/tftp/lib.rs"
 
-#[[bin]]
-#
-#name = "client-get"
-#path = "examples/client/get.rs"
-#
-#[[bin]]
-#
-#name = "client-put"
-#path = "examples/client/put.rs"
+[[example]]
 
-[dev-dependencies.quickcheck]
+name = "client-get"
+path = "examples/client/get.rs"
 
-git = "https://github.com/BurntSushi/quickcheck.git"
+[[example]]
+
+name = "client-put"
+path = "examples/client/put.rs"
+
+[dev-dependencies]
+
+quickcheck = "~0.2.0"
+quickcheck_macros = "~0.2.0"
+rand = "~0.1.0"
