@@ -1,5 +1,4 @@
 //! A Trivial File Transfer Protocol (TFTP) packet utilities.
-extern crate graphviz;
 
 use std::borrow::{Cow, IntoCow};
 use std::error;
@@ -146,7 +145,7 @@ pub trait Packet {
     fn opcode(&self) -> Opcode;
 
     /// Returns number of bytes of the encoded packet.
-    fn len(&self) -> uint;
+    fn len(&self) -> usize;
 }
 
 /// General packet decoding.
@@ -194,29 +193,29 @@ impl<'a> RequestPacket<'a> {
     /// Creates a new read request.
     ///
     /// Filename is converted to netascii if required.
-    pub fn read_request<'a>(filename: &'a str, mode: Mode) -> RequestPacket<'a> {
+    pub fn read_request<'b>(filename: &'b str, mode: Mode) -> RequestPacket<'b> {
         RequestPacket::ReadRequest(to_netascii(filename), mode)
     }
 
     /// Create a new write request.
     ///
     /// Filename is converted to netascii if required.
-    pub fn write_request<'a>(filename: &'a str, mode: Mode) -> RequestPacket<'a> {
+    pub fn write_request<'b>(filename: &'b str, mode: Mode) -> RequestPacket<'b> {
         RequestPacket::WriteRequest(to_netascii(filename), mode)
     }
 
     /// Returns a file name that the request is for.
     ///
     /// If netascii encoding is invalid `None` is returned.
-    pub fn filename<'a>(&'a self) -> Option<Cow<'a, str>> {
+    pub fn filename<'b>(&'b self) -> Option<Cow<'b, str>> {
         from_netascii(self.filename_raw())
     }
 
     /// Returns a raw file name netascii encoded.
-    pub fn filename_raw<'a>(&'a self) -> &'a str {
+    pub fn filename_raw(&self) -> &str {
         match *self {
-            RequestPacket::ReadRequest(ref filename, _) => filename.as_slice(),
-            RequestPacket::WriteRequest(ref filename, _) => filename.as_slice()
+            RequestPacket::ReadRequest(ref filename, _) => &filename[..],
+            RequestPacket::WriteRequest(ref filename, _) => &filename[..],
         }
     }
 
@@ -237,7 +236,7 @@ impl<'a> Packet for RequestPacket<'a> {
         }
     }
 
-    fn len(&self) -> uint {
+    fn len(&self) -> usize {
         2 + self.filename_raw().len() + 1 + self.mode().as_str().len() + 1
     }
 }
@@ -249,7 +248,7 @@ impl<'a> DecodePacket<'a> for RequestPacket<'a> {
             return None
         }
         // FIXME
-        str::from_utf8(data.slice_from(2)).ok().map(|s| s.split('\0')).and_then(|mut parts| {
+        str::from_utf8(&data[2..]).ok().map(|s| s.split('\0')).and_then(|mut parts| {
             let filename = parts.next().map(|s| s.into_cow());
             let mode = parts.next().and_then(|m| FromStr::from_str(m).ok());
             match (filename, mode) {
@@ -311,14 +310,14 @@ impl Packet for AckPacket {
         Opcode::ACK
     }
 
-    fn len(&self) -> uint { 4 }
+    fn len(&self) -> usize { 4 }
 }
 
 impl<'a> DecodePacket<'a> for AckPacket {
     fn decode(data: &'a [u8]) -> Option<AckPacket> {
         let opcode = read_be_u16(data).and_then(Opcode::from_u16);
         match opcode {
-            Some(Opcode::ACK) => read_be_u16(data.slice_from(2)).map(AckPacket::new),
+            Some(Opcode::ACK) => read_be_u16(&data[2..]).map(AckPacket::new),
             _ => None
         }
     }
@@ -327,7 +326,7 @@ impl<'a> DecodePacket<'a> for AckPacket {
 impl EncodePacket for AckPacket {
     fn encode_using(&self, mut buf: Vec<u8>) -> RawPacket {
         {
-            write_be_u16(&mut buf[], Opcode::ACK as u16);
+            write_be_u16(&mut buf[..], Opcode::ACK as u16);
             write_be_u16(&mut buf[2..], self.block_id);
         }
         RawPacket{
@@ -342,7 +341,7 @@ impl EncodePacket for AckPacket {
 pub struct DataPacketOctet<'a> {
     block_id: u16,
     data: Cow<'a, [u8]>,
-    len: uint,
+    len: usize,
 }
 
 // FIXME
@@ -350,7 +349,7 @@ unsafe impl<'a> Send for DataPacketOctet<'a> {}
 
 impl<'a> DataPacketOctet<'a> {
     /// Creates a data packet with a given id from provided slice od bytes.
-    pub fn from_slice<'a>(block_id: u16, data: &'a [u8]) -> DataPacketOctet<'a> {
+    pub fn from_slice(block_id: u16, data: &[u8]) -> DataPacketOctet {
         DataPacketOctet{
             block_id: block_id,
             data: data.into_cow(),
@@ -359,7 +358,7 @@ impl<'a> DataPacketOctet<'a> {
     }
 
     /// Creates a data packet with a given id from a given vector.
-    pub fn from_vec(block_id: u16, data: Vec<u8>, len: uint) -> DataPacketOctet<'static> {
+    pub fn from_vec(block_id: u16, data: Vec<u8>, len: usize) -> DataPacketOctet<'static> {
         DataPacketOctet{
             block_id: block_id,
             data: data.into_cow(),
@@ -373,8 +372,8 @@ impl<'a> DataPacketOctet<'a> {
     }
 
     /// Returns the slice of bytes contained in this packet.
-    pub fn data<'a>(&'a self) -> &'a [u8] {
-        self.data.as_slice().slice_to(self.len)
+    pub fn data(&self) -> &[u8] {
+        &self.data[..self.len]
     }
 
     /// Tries to move the buffer out of this object and returns it, consuming the `RawPacket`.
@@ -393,8 +392,8 @@ impl<'a> Packet for DataPacketOctet<'a> {
         Opcode::DATA
     }
 
-    fn len(&self) -> uint {
-        4 + self.data.as_slice().len()
+    fn len(&self) -> usize {
+        4 + self.data.len()
     }
 }
 
@@ -403,8 +402,8 @@ impl<'a> DecodePacket<'a> for DataPacketOctet<'a> {
         let opcode = read_be_u16(data).and_then(Opcode::from_u16);
         match opcode {
             Some(Opcode::DATA) => {
-                read_be_u16(data.slice_from(2)).map(|block_id| {
-                    DataPacketOctet::from_slice(block_id, data.slice_from(4))
+                read_be_u16(&data[2..]).map(|block_id| {
+                    DataPacketOctet::from_slice(block_id, &data[4..])
                 })
             }
             _ => None
@@ -418,7 +417,7 @@ impl<'a> EncodePacket for DataPacketOctet<'a> {
             let mut w = BufWriter::new(buf.as_mut_slice());
             w.write_be_u16(Opcode::DATA as u16).unwrap();
             w.write_be_u16(self.block_id).unwrap();
-            w.write(self.data.as_slice()).unwrap();
+            w.write_all(&self.data[..]).unwrap();
         }
         RawPacket{
             buf: buf,
@@ -452,7 +451,7 @@ impl<'a> ErrorPacket<'a> {
     }
 
     pub fn message(&'a self) -> Option<Cow<'a, str>> {
-        from_netascii(self.message.as_slice())
+        from_netascii(&self.message[..])
     }
 }
 
@@ -461,7 +460,7 @@ impl<'a> Packet for ErrorPacket<'a> {
         Opcode::ERROR
     }
 
-    fn len(&self) -> uint {
+    fn len(&self) -> usize {
         4 + self.message.len() + 1
     }
 }
@@ -471,9 +470,9 @@ impl<'a> DecodePacket<'a> for ErrorPacket<'a> {
         let opcode = read_be_u16(data).and_then(Opcode::from_u16);
         match opcode {
             Some(Opcode::ERROR) => {
-                let error = read_be_u16(data.slice_from(2)).and_then(Error::from_u16);
+                let error = read_be_u16(&data[2..]).and_then(Error::from_u16);
                 // FIXME
-                let msg = str::from_utf8(data.slice_from(4)).ok().map(|s| s.split('\0'))
+                let msg = str::from_utf8(&data[4..]).ok().map(|s| s.split('\0'))
                                                             .and_then(|mut i| i.next());
                 match (error, msg) {
                     (Some(error), Some(msg)) => Some(ErrorPacket::new(error, msg)),
@@ -491,7 +490,7 @@ impl<'a> EncodePacket for ErrorPacket<'a> {
             let mut w = BufWriter::new(buf.as_mut_slice());
             w.write_be_u16(Opcode::ERROR as u16).unwrap();
             w.write_be_u16(self.error  as u16).unwrap();
-            w.write_str(self.message.as_slice()).unwrap();
+            w.write_str(&self.message[..]).unwrap();
             w.write_u8(0).unwrap();
         }
         RawPacket{
@@ -505,13 +504,13 @@ impl<'a> EncodePacket for ErrorPacket<'a> {
 #[derive(Clone)]
 pub struct RawPacket {
     buf: Vec<u8>,
-    len: uint,
+    len: usize,
 }
 
 impl RawPacket {
     /// Creates a raw TFTP packet from the given buffer with actual data taking
     /// `len` bytes.
-    pub fn new(buf: Vec<u8>, len: uint) -> RawPacket {
+    pub fn new(buf: Vec<u8>, len: usize) -> RawPacket {
         RawPacket{
             buf: buf,
             len: len
@@ -519,8 +518,8 @@ impl RawPacket {
     }
 
     /// Returns a slice of bytes representing a packet.
-    pub fn packet_buf<'a>(&'a self) -> &'a [u8] {
-        self.buf.slice_to(self.len)
+    pub fn packet_buf(&self) -> &[u8] {
+        &self.buf[..self.len]
     }
 
     /// Returns opcode of an endoded packet.
@@ -538,7 +537,7 @@ impl RawPacket {
     }
 
     /// Length of the encoded packet.
-    pub fn len(&self) -> uint {
+    pub fn len(&self) -> usize {
         self.len
     }
 
@@ -583,7 +582,7 @@ mod test {
     impl Arbitrary for RequestPacket<'static> {
         fn arbitrary<G: Gen>(g: &mut G) -> RequestPacket<'static> {
             let transfer_type = if g.gen() { Mode::Octet } else { Mode::NetAscii };
-            let str_len = g.gen_range(0u, 50);
+            let str_len = g.gen_range(0usize, 50);
             let filename: String = g.gen_ascii_chars().take(str_len).collect();
             if g.gen() {
                 RequestPacket::ReadRequest(filename.into_cow(), transfer_type)
@@ -601,7 +600,7 @@ mod test {
 
     impl Arbitrary for DataPacketOctet<'static> {
         fn arbitrary<G: Gen>(g: &mut G) -> DataPacketOctet<'static> {
-            let size = g.gen_range(0u, 512);
+            let size = g.gen_range(0usize, 512);
             let data: Vec<_> = g.gen_iter::<u8>().take(size).collect();
             let len = data.len();
             DataPacketOctet::from_vec(g.gen(), data, len)
@@ -611,7 +610,7 @@ mod test {
     impl Arbitrary for ErrorPacket<'static> {
         fn arbitrary<G: Gen>(g: &mut G) -> ErrorPacket<'static> {
             let error = Error::from_u16(g.gen_range(0, 8)).unwrap();
-            let msg_len = g.gen_range(0u, 50);
+            let msg_len = g.gen_range(0usize, 50);
             let message: String = g.gen_ascii_chars().take(msg_len).collect();
             ErrorPacket{
                 error: error,
@@ -673,7 +672,7 @@ mod test {
         let packet = AckPacket::new(1);
         let raw_packet = packet.encode();
         let expected = vec![0, 4, 0, 1];
-        assert_eq!(expected.as_slice(), raw_packet.packet_buf());
+        assert_eq!(&expected[..], raw_packet.packet_buf());
     }
 
     #[test]
@@ -689,7 +688,7 @@ mod test {
         let packet = DataPacketOctet::from_vec(10, vec![1u8, 2, 3, 4, 5], 5);
         let raw_packet = packet.encode();
         let expected = vec![0, 3, 0, 10, 1, 2, 3, 4, 5];
-        assert_eq!(expected.as_slice(), raw_packet.packet_buf());
+        assert_eq!(&expected[..], raw_packet.packet_buf());
     }
 
     #[test]
@@ -777,7 +776,7 @@ mod bench {
     #[bench]
     fn decode_data_octet(b: &mut Bencher) {
         let data = vec![1u8; 100];
-        let raw_packet = DataPacketOctet::from_slice(1, data.as_slice()).encode();
+        let raw_packet = DataPacketOctet::from_slice(1, &data[..]).encode();
         b.iter(|| {
             let ack: Option<DataPacketOctet> = raw_packet.decode();
             black_box(ack)
@@ -788,7 +787,7 @@ mod bench {
     #[bench]
     fn encode_data_octet(b: &mut Bencher) {
         let data = vec![1u8; 100];
-        let packet = DataPacketOctet::from_slice(1, data.as_slice());
+        let packet = DataPacketOctet::from_slice(1, &data[..]);
         let raw_packet = packet.encode();
         b.iter(|| {
             black_box(packet.encode())
@@ -798,9 +797,9 @@ mod bench {
 
     #[bench]
     fn encode_data_octet_buffer_reusing(b: &mut Bencher) {
-        static N: uint = 1000;
+        static N: usize = 1000;
         let data = vec![1u8; 100];
-        let packet = DataPacketOctet::from_slice(1, data.as_slice());
+        let packet = DataPacketOctet::from_slice(1, &data[..]);
         let raw_packet = packet.encode();
         b.iter(|| {
             let mut buf = vec!(0u8; 512);

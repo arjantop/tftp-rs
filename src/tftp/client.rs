@@ -3,14 +3,14 @@
 //! This module contains the ability to read data from or write data to a remote TFTP server.
 
 use std::borrow::IntoCow;
-use std::old_io::{self, IoResult, IoError};
+use std::old_io::{IoResult, IoError};
 use std::old_io::net::ip::{SocketAddr, Ipv4Addr};
 use std::old_io::net::udp::UdpSocket;
 
 use packet::{Mode, RequestPacket, DataPacketOctet, AckPacket, ErrorPacket,
              EncodePacket, RawPacket, Error};
 
-static MAX_DATA_SIZE: uint = 512;
+static MAX_DATA_SIZE: usize = 512;
 
 #[derive(Debug, Clone)]
 pub enum ClientError {
@@ -86,7 +86,7 @@ impl Client {
                         match packet.decode::<DataPacketOctet>() {
                             Some(data_packet) => {
                                 if current_id == data_packet.block_id() {
-                                    try!(writer.write(data_packet.data()));
+                                    try!(writer.write_all(data_packet.data()));
                                     let ack = AckPacket::new(data_packet.block_id());
                                     let buf = bufs.pop().unwrap();
                                     let encoded = ack.encode_using(buf);
@@ -134,7 +134,7 @@ impl Client {
     /// A TFTP write request
     ///
     /// Put a file `path` to the server using a `mode`.
-    pub fn put(&mut self, path: &Path, mode: Mode, reader: &mut Reader) -> IoResult<()> {
+    pub fn put(&mut self, _path: &Path, _mode: Mode, _reader: &mut Reader) -> IoResult<()> {
         //let mut bufs = Vec::from_fn(2, |_| Vec::from_elem(MAX_DATA_SIZE + 4, 0));
         //let mut read_buffer = Vec::from_elem(MAX_DATA_SIZE, 0);
 
@@ -193,13 +193,13 @@ impl Client {
         return Ok(())
     }
 
-    fn read_block(&mut self, reader: &mut Reader, buf: &mut [u8]) -> IoResult<uint> {
-        reader.read(buf).or_else(|e| {
-            if e.kind == old_io::IoErrorKind::EndOfFile {
-                Ok(0u)
-            } else {
-                Err(e)
-            }
-        })
-    }
+    //fn read_block(&mut self, reader: &mut Reader, buf: &mut [u8]) -> IoResult<usize> {
+        //reader.read(buf).or_else(|e| {
+            //if e.kind == old_io::IoErrorKind::EndOfFile {
+                //Ok(0usize)
+            //} else {
+                //Err(e)
+            //}
+        //})
+    //}
 }

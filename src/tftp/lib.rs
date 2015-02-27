@@ -16,8 +16,6 @@
 #![crate_name = "tftp"]
 #![crate_type = "lib"]
 
-#![feature(macro_rules)]
-
 pub mod packet;
 pub mod netascii;
 
