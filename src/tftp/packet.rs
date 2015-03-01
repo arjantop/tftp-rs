@@ -139,6 +139,21 @@ impl Error {
     }
 }
 
+impl<'a> fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::Undefined => "undefined",
+            Error::FileNotFound => "file not found",
+            Error::AccessViolation => "access violation",
+            Error::DiskFull => "disk full",
+            Error::IllegalOperation => "illegal operation",
+            Error::UnknownTransferId => "unknown transfer id",
+            Error::FileAlreadyExists => "file already exists",
+            Error::NoSuchUser => "no such user",
+        }.fmt(f)
+    }
+}
+
 /// A trait to represent common packet data.
 pub trait Packet {
     /// Returns opcode value associated with that packet.
@@ -435,6 +450,18 @@ pub struct ErrorPacket<'a> {
 
 // FIXME
 unsafe impl<'a> Send for ErrorPacket<'a> {}
+
+impl<'a> fmt::Display for ErrorPacket<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}: {}", self.error, self.message)
+    }
+}
+
+impl<'a> error::Error for ErrorPacket<'a> {
+    fn description(&self) -> &str {
+        &self.message
+    }
+}
 
 impl<'a> ErrorPacket<'a> {
     /// Creates and error packet with a chosen error and a message describing the
