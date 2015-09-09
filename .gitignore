@@ -2,3 +2,4 @@ target/
 doc/
 bench/fixtures
 perf.*
+Cargo.lock

@@ -14,7 +14,7 @@
 //! - RFC 1350 - TFTP Protocol (revision 2) (http://tools.ietf.org/html/rfc1350)
 
 #![crate_name = "tftp"]
-#![crate_type = "lib"]
+#![feature(test, into_cow, ip_addr, convert)]
 
 pub mod packet;
 pub mod netascii;

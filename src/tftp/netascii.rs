@@ -135,7 +135,7 @@ mod bench {
     fn from_netascii_with_encoding(b: &mut Bencher) {
         let netascii = to_netascii(TEXT_DATA);
         b.iter(|| {
-            black_box(from_netascii(netascii.as_slice()));
+            black_box(from_netascii(netascii.as_ref()));
         });
         b.bytes = TEXT_DATA.as_bytes().len() as u64;
     }
@@ -144,7 +144,7 @@ mod bench {
     fn from_netascii_without_encoding(b: &mut Bencher) {
         let no_newlines = TEXT_DATA.replace("\n", "");
         b.iter(|| {
-            black_box(from_netascii(no_newlines.as_slice()));
+            black_box(from_netascii(no_newlines.as_ref()));
         });
         b.bytes = TEXT_DATA.as_bytes().len() as u64;
     }
@@ -161,7 +161,7 @@ mod bench {
     fn to_netascii_without_encoding(b: &mut Bencher) {
         let no_newlines = TEXT_DATA.replace("\n", "");
         b.iter(|| {
-            black_box(to_netascii(no_newlines.as_slice()));
+            black_box(to_netascii(no_newlines.as_ref()));
         });
         b.bytes = TEXT_DATA.as_bytes().len() as u64;
     }

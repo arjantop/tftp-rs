@@ -2,10 +2,9 @@
 //!
 //! This module contains the ability to read data from or write data to a remote TFTP server.
 
-use std::borrow::IntoCow;
 use std::io;
 use std::path::Path;
-use std::net::{UdpSocket, SocketAddr, IpAddr};
+use std::net::{UdpSocket, SocketAddr};
 
 use packet::{Mode, RequestPacket, DataPacketOctet, AckPacket, ErrorPacket,
              EncodePacket, RawPacket, Error};
@@ -36,8 +35,7 @@ impl Client {
     /// Creates a new client and binds an UDP socket.
     pub fn new(remote_addr: SocketAddr) -> io::Result<Client> {
         // FIXME: port should not be hardcoded
-        let addr = SocketAddr::new(IpAddr::new_v4(127, 0, 0, 1), 41000);
-        UdpSocket::bind(&addr).map(|socket| {
+        UdpSocket::bind("127.0.0.1:41000").map(|socket| {
             Client{ socket: socket, remote_addr: remote_addr }
         })
     }
@@ -94,7 +92,7 @@ impl Client {
                             None => {
                                 match packet.decode::<ErrorPacket>() {
                                     Some(err) => {
-                                        return Err(io::Error::new(io::ErrorKind::Other, "todo", None))
+                                        return Err(io::Error::new(io::ErrorKind::Other, "todo"))
                                      }
                                     None => {
                                         //let opcode = packet.opcode().map(|o| format!("{}", o))

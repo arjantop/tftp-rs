@@ -1,12 +1,17 @@
 //! A Trivial File Transfer Protocol (TFTP) packet utilities.
 
+extern crate byteorder;
+
+use std::io::{Write, Cursor};
 use std::borrow::{Cow, IntoCow};
 use std::error;
 use std::fmt;
 use std::str::{self, FromStr};
-use std::old_io::BufWriter;
 
 use netascii::{NetasciiString, to_netascii, from_netascii};
+
+use self::byteorder::{WriteBytesExt, BigEndian};
+
 
 /// Opcode that represents packet's type.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -68,7 +73,8 @@ impl Mode {
     }
 }
 
-struct ParseModeError;
+#[derive(Debug)]
+pub struct ParseModeError;
 
 impl fmt::Display for ParseModeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -282,16 +288,15 @@ impl<'a> DecodePacket<'a> for RequestPacket<'a> {
 
 impl<'a> EncodePacket for RequestPacket<'a> {
     fn encode_using(&self, mut buf: Vec<u8>) -> RawPacket {
-        {
-            let mut w = BufWriter::new(buf.as_mut_slice());
-            w.write_be_u16(self.opcode() as u16).unwrap();
-            w.write_str(self.filename_raw()).unwrap();
-            w.write_u8(0).unwrap();
-            w.write_str(self.mode().as_str()).unwrap();
-            w.write_u8(0).unwrap();
-        }
-        RawPacket{
-            buf: buf,
+        let mut b = Cursor::new(buf);
+        b.write_u16::<BigEndian>(self.opcode() as u16).unwrap();
+        b.write(self.filename_raw().as_bytes()).unwrap();
+        b.write_u8(0).unwrap();
+        b.write(self.mode().as_str().as_bytes()).unwrap();
+        b.write_u8(0).unwrap();
+
+        RawPacket {
+            buf: b.into_inner(),
             len: self.len()
         }
     }
@@ -340,12 +345,12 @@ impl<'a> DecodePacket<'a> for AckPacket {
 
 impl EncodePacket for AckPacket {
     fn encode_using(&self, mut buf: Vec<u8>) -> RawPacket {
-        {
-            write_be_u16(&mut buf[..], Opcode::ACK as u16);
-            write_be_u16(&mut buf[2..], self.block_id);
-        }
+        let mut b = Cursor::new(buf);
+        b.write_u16::<BigEndian>(Opcode::ACK as u16);
+        b.write_u16::<BigEndian>(self.block_id);
+
         RawPacket{
-            buf: buf,
+            buf: b.into_inner(),
             len: self.len()
         }
     }
@@ -428,14 +433,13 @@ impl<'a> DecodePacket<'a> for DataPacketOctet<'a> {
 
 impl<'a> EncodePacket for DataPacketOctet<'a> {
     fn encode_using(&self, mut buf: Vec<u8>) -> RawPacket {
-        {
-            let mut w = BufWriter::new(buf.as_mut_slice());
-            w.write_be_u16(Opcode::DATA as u16).unwrap();
-            w.write_be_u16(self.block_id).unwrap();
-            w.write_all(&self.data[..]).unwrap();
-        }
-        RawPacket{
-            buf: buf,
+        let mut b = Cursor::new(buf);
+        b.write_u16::<BigEndian>(Opcode::DATA as u16).unwrap();
+        b.write_u16::<BigEndian>(self.block_id).unwrap();
+        b.write(&self.data[..]).unwrap();
+
+        RawPacket {
+            buf: b.into_inner(),
             len: self.len()
         }
     }
@@ -513,15 +517,14 @@ impl<'a> DecodePacket<'a> for ErrorPacket<'a> {
 
 impl<'a> EncodePacket for ErrorPacket<'a> {
     fn encode_using(&self, mut buf: Vec<u8>) -> RawPacket {
-        {
-            let mut w = BufWriter::new(buf.as_mut_slice());
-            w.write_be_u16(Opcode::ERROR as u16).unwrap();
-            w.write_be_u16(self.error  as u16).unwrap();
-            w.write_str(&self.message[..]).unwrap();
-            w.write_u8(0).unwrap();
-        }
+        let mut b = Cursor::new(buf);
+        b.write_u16::<BigEndian>(Opcode::ERROR as u16).unwrap();
+        b.write_u16::<BigEndian>(self.error  as u16).unwrap();
+        b.write(&self.message.as_bytes()).unwrap();
+        b.write_u8(0).unwrap();
+
         RawPacket{
-            buf: buf,
+            buf: b.into_inner(),
             len: self.len()
         }
     }
@@ -581,15 +584,6 @@ fn read_be_u16(data: &[u8]) -> Option<u16> {
         (Some(x1), Some(x2)) => Some((*x1 as u16) << 8 | *x2 as u16),
         _ => None
     }
-}
-
-fn write_be_u16(data: &mut [u8], x: u16) -> Option<()> {
-    if data.len() < 2 {
-        return None
-    }
-    *data.get_mut(0).unwrap() = (x >> 8) as u8;
-    *data.get_mut(1).unwrap() = x as u8;
-    Some(())
 }
 
 #[cfg(test)]
@@ -830,7 +824,7 @@ mod bench {
         let raw_packet = packet.encode();
         b.iter(|| {
             let mut buf = vec!(0u8; 512);
-            for _ in range(0, N) {
+            for _ in 0..N {
                 let encoded = packet.encode_using(buf);
                 buf = encoded.get_buffer();
             }

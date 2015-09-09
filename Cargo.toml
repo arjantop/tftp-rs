@@ -19,8 +19,12 @@ path = "examples/client/get.rs"
 name = "client-put"
 path = "examples/client/put.rs"
 
+[dependencies]
+
+byteorder = "*"
+
 [dev-dependencies]
 
-quickcheck = "~0.2.0"
-quickcheck_macros = "~0.2.0"
-rand = "~0.1.0"
+quickcheck = "*"
+quickcheck_macros = "*"
+rand = "*"
