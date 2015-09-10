@@ -2,7 +2,7 @@
 extern crate tftp;
 
 use std::io::BufWriter;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::path::Path;
 use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 use std::process::exit;

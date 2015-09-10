@@ -10,7 +10,7 @@ use std::str::{self, FromStr};
 
 use netascii::{NetasciiString, to_netascii, from_netascii};
 
-use self::byteorder::{WriteBytesExt, BigEndian};
+use self::byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
 
 
 /// Opcode that represents packet's type.
@@ -173,7 +173,7 @@ pub trait Packet {
 ///
 /// Decoding should be implemented using slicing when possible, allocating memory
 /// only when really required (e.g. raw value must be unescaped).
-pub trait DecodePacket<'a> {
+pub trait DecodePacket<'a> : Sized {
     /// Decode a packet from a given byte slice.
     ///
     /// If the packet can't be decoded `None` is returned.
@@ -264,7 +264,9 @@ impl<'a> Packet for RequestPacket<'a> {
 
 impl<'a> DecodePacket<'a> for RequestPacket<'a> {
     fn decode(data: &'a [u8]) -> Option<RequestPacket<'a>> {
-        let opcode = read_be_u16(data).and_then(Opcode::from_u16);
+        let mut cur = Cursor::new(data);
+        let opcode = cur.read_u16::<BigEndian>().ok().and_then(Opcode::from_u16);
+
         if opcode != Some(Opcode::RRQ) && opcode != Some(Opcode::WRQ) {
             return None
         }
@@ -287,7 +289,7 @@ impl<'a> DecodePacket<'a> for RequestPacket<'a> {
 }
 
 impl<'a> EncodePacket for RequestPacket<'a> {
-    fn encode_using(&self, mut buf: Vec<u8>) -> RawPacket {
+    fn encode_using(&self, buf: Vec<u8>) -> RawPacket {
         let mut b = Cursor::new(buf);
         b.write_u16::<BigEndian>(self.opcode() as u16).unwrap();
         b.write(self.filename_raw().as_bytes()).unwrap();
@@ -335,19 +337,20 @@ impl Packet for AckPacket {
 
 impl<'a> DecodePacket<'a> for AckPacket {
     fn decode(data: &'a [u8]) -> Option<AckPacket> {
-        let opcode = read_be_u16(data).and_then(Opcode::from_u16);
+        let mut cur = Cursor::new(data);
+        let opcode = cur.read_u16::<BigEndian>().ok().and_then(Opcode::from_u16);
         match opcode {
-            Some(Opcode::ACK) => read_be_u16(&data[2..]).map(AckPacket::new),
+            Some(Opcode::ACK) => cur.read_u16::<BigEndian>().ok().map(AckPacket::new),
             _ => None
         }
     }
 }
 
 impl EncodePacket for AckPacket {
-    fn encode_using(&self, mut buf: Vec<u8>) -> RawPacket {
+    fn encode_using(&self, buf: Vec<u8>) -> RawPacket {
         let mut b = Cursor::new(buf);
-        b.write_u16::<BigEndian>(Opcode::ACK as u16);
-        b.write_u16::<BigEndian>(self.block_id);
+        b.write_u16::<BigEndian>(Opcode::ACK as u16).unwrap();
+        b.write_u16::<BigEndian>(self.block_id).unwrap();
 
         RawPacket{
             buf: b.into_inner(),
@@ -419,10 +422,11 @@ impl<'a> Packet for DataPacketOctet<'a> {
 
 impl<'a> DecodePacket<'a> for DataPacketOctet<'a> {
     fn decode(data: &'a [u8]) -> Option<DataPacketOctet<'a>> {
-        let opcode = read_be_u16(data).and_then(Opcode::from_u16);
+        let mut cur = Cursor::new(data);
+        let opcode = cur.read_u16::<BigEndian>().ok().and_then(Opcode::from_u16);
         match opcode {
             Some(Opcode::DATA) => {
-                read_be_u16(&data[2..]).map(|block_id| {
+                cur.read_u16::<BigEndian>().ok().map(|block_id| {
                     DataPacketOctet::from_slice(block_id, &data[4..])
                 })
             }
@@ -432,7 +436,7 @@ impl<'a> DecodePacket<'a> for DataPacketOctet<'a> {
 }
 
 impl<'a> EncodePacket for DataPacketOctet<'a> {
-    fn encode_using(&self, mut buf: Vec<u8>) -> RawPacket {
+    fn encode_using(&self, buf: Vec<u8>) -> RawPacket {
         let mut b = Cursor::new(buf);
         b.write_u16::<BigEndian>(Opcode::DATA as u16).unwrap();
         b.write_u16::<BigEndian>(self.block_id).unwrap();
@@ -498,10 +502,11 @@ impl<'a> Packet for ErrorPacket<'a> {
 
 impl<'a> DecodePacket<'a> for ErrorPacket<'a> {
     fn decode(data: &'a [u8]) -> Option<ErrorPacket<'a>> {
-        let opcode = read_be_u16(data).and_then(Opcode::from_u16);
+        let mut cur = Cursor::new(data);
+        let opcode = cur.read_u16::<BigEndian>().ok().and_then(Opcode::from_u16);
         match opcode {
             Some(Opcode::ERROR) => {
-                let error = read_be_u16(&data[2..]).and_then(Error::from_u16);
+                let error = cur.read_u16::<BigEndian>().ok().and_then(Error::from_u16);
                 // FIXME
                 let msg = str::from_utf8(&data[4..]).ok().map(|s| s.split('\0'))
                                                             .and_then(|mut i| i.next());
@@ -516,7 +521,7 @@ impl<'a> DecodePacket<'a> for ErrorPacket<'a> {
 }
 
 impl<'a> EncodePacket for ErrorPacket<'a> {
-    fn encode_using(&self, mut buf: Vec<u8>) -> RawPacket {
+    fn encode_using(&self, buf: Vec<u8>) -> RawPacket {
         let mut b = Cursor::new(buf);
         b.write_u16::<BigEndian>(Opcode::ERROR as u16).unwrap();
         b.write_u16::<BigEndian>(self.error  as u16).unwrap();
@@ -556,7 +561,7 @@ impl RawPacket {
     ///
     /// Return `None` if read opcode value is unknown.
     pub fn opcode(&self) -> Option<Opcode> {
-        read_be_u16(self.packet_buf()).and_then(Opcode::from_u16)
+        self.packet_buf().read_u16::<BigEndian>().ok().and_then(Opcode::from_u16)
     }
 
     /// Decode a packet of specified type.
@@ -579,13 +584,6 @@ impl RawPacket {
     }
 }
 
-fn read_be_u16(data: &[u8]) -> Option<u16> {
-    match (data.get(0), data.get(1)) {
-        (Some(x1), Some(x2)) => Some((*x1 as u16) << 8 | *x2 as u16),
-        _ => None
-    }
-}
-
 #[cfg(test)]
 mod test {
     extern crate quickcheck;
@@ -594,7 +592,7 @@ mod test {
     use std::borrow::{Cow, IntoCow};
 
     use self::rand::Rng;
-    use self::quickcheck::{quickcheck, Arbitrary, Gen, Testable};
+    use self::quickcheck::{quickcheck, Arbitrary, Gen};
 
     use super::{Mode, Error, EncodePacket, DecodePacket};
     use super::{RequestPacket, AckPacket, DataPacketOctet,
