@@ -11,17 +11,19 @@ path = "src/tftp/lib.rs"
 
 [[example]]
 
-name = "client-get"
+name = "get"
 path = "examples/client/get.rs"
 
 [[example]]
 
-name = "client-put"
+name = "put"
 path = "examples/client/put.rs"
 
 [dependencies]
 
 byteorder = "*"
+mio = "*"
+bytes = "*"
 
 [dev-dependencies]
 

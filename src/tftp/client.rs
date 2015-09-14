@@ -2,12 +2,16 @@
 //!
 //! This module contains the ability to read data from or write data to a remote TFTP server.
 
-use std::io;
+use std::io::{self, Cursor};
 use std::path::Path;
-use std::net::{UdpSocket, SocketAddr};
+use std::net::SocketAddr;
+use std::str::FromStr;
 
 use packet::{Mode, RequestPacket, DataPacketOctet, AckPacket, ErrorPacket,
              EncodePacket, RawPacket, Error};
+
+use mio::udp::UdpSocket;
+use bytes::{MutSliceBuf, MutBuf};
 
 static MAX_DATA_SIZE: usize = 512;
 
@@ -35,7 +39,8 @@ impl Client {
     /// Creates a new client and binds an UDP socket.
     pub fn new(remote_addr: SocketAddr) -> io::Result<Client> {
         // FIXME: port should not be hardcoded
-        UdpSocket::bind("127.0.0.1:41000").map(|socket| {
+        let addr = FromStr::from_str("127.0.0.1:41000").unwrap();
+        UdpSocket::bound(&addr).map(|socket| {
             Client{ socket: socket, remote_addr: remote_addr }
         })
     }
@@ -49,17 +54,23 @@ impl Client {
 
         let read_request = RequestPacket::read_request(path.to_str().expect("utf-8 path"), mode);
         let encoded = read_request.encode_using(bufs.pop().unwrap());
-        try!(self.socket.send_to(encoded.packet_buf(), &self.remote_addr));
+        {
+            let mut buf = Cursor::new(encoded.packet_buf());
+            try!(self.socket.send_to(&mut buf, &self.remote_addr));
+        }
 
         bufs.push(encoded.get_buffer());
         let mut first_packet = true;
         let mut current_id = 1;
         loop {
-            // TODO
-            //self.socket.set_timeout(Some(1000));
             let mut buf = bufs.pop().unwrap();
-            match self.socket.recv_from(buf.as_mut_slice()) {
-                Ok((n, from)) => {
+            let (received, n) = {
+                let len = buf.len();
+                let mut cur = MutSliceBuf::wrap(&mut buf);
+                (self.socket.recv_from(&mut cur), len - cur.remaining())
+            };
+            match received {
+                Ok(Some(from)) => {
                     if first_packet && self.remote_addr.ip() == from.ip() {
                         self.remote_addr = SocketAddr::new(self.remote_addr.ip(), from.port());
                         first_packet = false;
@@ -77,7 +88,10 @@ impl Client {
                                     let ack = AckPacket::new(data_packet.block_id());
                                     let buf = bufs.pop().unwrap();
                                     let encoded = ack.encode_using(buf);
-                                    try!(self.socket.send_to(encoded.packet_buf(), &self.remote_addr));
+                                    {
+                                        let mut buf = Cursor::new(encoded.packet_buf());
+                                        try!(self.socket.send_to(&mut buf, &self.remote_addr));
+                                    }
                                     if data_packet.data().len() < MAX_DATA_SIZE {
                                         println!("Transfer complete");
                                         break;
@@ -98,7 +112,7 @@ impl Client {
                                         //let opcode = packet.opcode().map(|o| format!("{}", o))
                                                                     //.unwrap_or("Unknown".to_string());
                                         //println!("Unexpected packet type: iopcode={}", opcode)
-                                        println!("Unexpected packet type");
+                                        println!("Unexpected packet type: {}", packet.opcode().unwrap() as u16);
                                     }
 
                                 }
@@ -107,6 +121,10 @@ impl Client {
                     }
                     bufs.push(packet.get_buffer());
                 }
+                Ok(None) => {
+                    bufs.push(buf);
+                    continue
+                },
                 Err(e) => {
                     bufs.push(buf);
                     return Err(e);

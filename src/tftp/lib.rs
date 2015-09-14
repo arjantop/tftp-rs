@@ -16,6 +16,9 @@
 #![crate_name = "tftp"]
 #![feature(test, into_cow, ip_addr, convert)]
 
+extern crate mio;
+extern crate bytes;
+
 pub mod packet;
 pub mod netascii;
 
