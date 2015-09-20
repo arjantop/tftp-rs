@@ -185,7 +185,7 @@ pub trait DecodePacket<'a> : Sized {
 pub trait EncodePacket : Packet {
     /// Encode a packet using a newly allocated buffer.
     ///
-    /// This method is provided onnly for convenience, use `encode_using` for
+    /// This method is provided only for convenience, use `encode_using` for
     /// maximal buffer reuse when possible.
     #[inline]
     fn encode(&self) -> RawPacket {
@@ -420,14 +420,16 @@ impl<'a> Packet for DataPacketOctet<'a> {
     }
 }
 
-impl<'a> DecodePacket<'a> for DataPacketOctet<'a> {
-    fn decode(data: &'a [u8]) -> Option<DataPacketOctet<'a>> {
+impl<'a> DecodePacket<'a> for DataPacketOctet<'static> {
+    fn decode(data: &'a [u8]) -> Option<DataPacketOctet<'static>> {
         let mut cur = Cursor::new(data);
         let opcode = cur.read_u16::<BigEndian>().ok().and_then(Opcode::from_u16);
         match opcode {
             Some(Opcode::DATA) => {
                 cur.read_u16::<BigEndian>().ok().map(|block_id| {
-                    DataPacketOctet::from_slice(block_id, &data[4..])
+                    let payload = data[4..].to_vec();
+                    let len = payload.len();
+                    DataPacketOctet::from_vec(block_id, payload, len)
                 })
             }
             _ => None

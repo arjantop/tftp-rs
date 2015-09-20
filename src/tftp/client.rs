@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use packet::{Mode, RequestPacket, DataPacketOctet, AckPacket, ErrorPacket,
-             EncodePacket, RawPacket, Error};
+             EncodePacket, RawPacket, Error, Opcode};
 
 use mio::udp::UdpSocket;
 use bytes::{MutSliceBuf, MutBuf};
@@ -29,19 +29,83 @@ static MAX_DATA_SIZE: usize = 512;
 
 //pub type ClientResult<T> = Result<T, ClientError>;
 
-/// A Trivial File Transfer Protocol client.
-pub struct Client {
+trait PacketSender {
+    fn send_read_request(&self, path: &str, mode: Mode) -> io::Result<()>;
+    fn send_ack(&self, block_id: u16) -> io::Result<()>;
+}
+
+trait PacketReceiver {
+    fn receive_data(&mut self) -> io::Result<DataPacketOctet<'static>>;
+}
+
+struct InternalClient {
     socket: UdpSocket,
     remote_addr: SocketAddr,
+}
+
+impl InternalClient {
+    fn new(socket: UdpSocket, remote_addr: SocketAddr) -> InternalClient {
+        InternalClient { socket: socket, remote_addr: remote_addr }
+    }
+}
+
+impl PacketSender for InternalClient {
+    fn send_read_request(&self, path: &str, mode: Mode) -> io::Result<()> {
+        let read_request = RequestPacket::read_request(path, mode);
+        let encoded = read_request.encode();
+        let mut buf = Cursor::new(encoded.packet_buf());
+        self.socket.send_to(&mut buf, &self.remote_addr).map(|_| ())
+    }
+
+    fn send_ack(&self, block_id: u16) -> io::Result<()> {
+        let ack = AckPacket::new(block_id);
+        let encoded = ack.encode();
+        let mut buf = Cursor::new(encoded.packet_buf());
+        self.socket.send_to(&mut buf, &self.remote_addr).map(|_| ())
+    }
+}
+
+impl PacketReceiver for InternalClient {
+    fn receive_data(&mut self) -> io::Result<DataPacketOctet<'static>> {
+        loop {
+            let mut buf = vec![0; MAX_DATA_SIZE + 4];
+            let (result, n) = {
+                let len = buf.len();
+                let mut cur = MutSliceBuf::wrap(&mut buf);
+                (self.socket.recv_from(&mut cur), len - cur.remaining())
+            };
+            match result {
+                Ok(None) => {
+                    continue;
+                }
+                _ => ()
+            }
+            return result.map(|from| {
+                self.remote_addr = from.expect("no remote address");
+                RawPacket::new(buf, n)
+            }).and_then(|packet| {
+                match packet.opcode() {
+                    Some(Opcode::DATA) => packet.decode::<DataPacketOctet>().ok_or(io::Error::new(io::ErrorKind::Other, "todo")),
+                    Some(Opcode::ERROR) => Err(io::Error::new(io::ErrorKind::Other, "error")),
+                    _ => Err(io::Error::new(io::ErrorKind::Other, "unexpected"))
+                }
+            })
+        }
+    }
+}
+
+/// A Trivial File Transfer Protocol client.
+pub struct Client {
+    c: InternalClient
 }
 
 impl Client {
     /// Creates a new client and binds an UDP socket.
     pub fn new(remote_addr: SocketAddr) -> io::Result<Client> {
-        // FIXME: port should not be hardcoded
-        let addr = FromStr::from_str("127.0.0.1:41000").unwrap();
+        // FIXME: address should not be hardcoded
+        let addr = FromStr::from_str("127.0.0.1:0").unwrap();
         UdpSocket::bound(&addr).map(|socket| {
-            Client{ socket: socket, remote_addr: remote_addr }
+            Client{ c: InternalClient::new(socket, remote_addr) }
         })
     }
 
@@ -50,85 +114,27 @@ impl Client {
     /// Get a file `path` from the server using a `mode`. Received data is written to
     /// the `writer`.
     pub fn get(&mut self, path: &Path, mode: Mode, writer: &mut io::Write) -> io::Result<()> {
-        let mut bufs = vec![vec![0; MAX_DATA_SIZE + 4], vec![0; MAX_DATA_SIZE + 4]];
+        try!(self.c.send_read_request(&path.to_string_lossy(), mode));
 
-        let read_request = RequestPacket::read_request(path.to_str().expect("utf-8 path"), mode);
-        let encoded = read_request.encode_using(bufs.pop().unwrap());
-        {
-            let mut buf = Cursor::new(encoded.packet_buf());
-            try!(self.socket.send_to(&mut buf, &self.remote_addr));
-        }
-
-        bufs.push(encoded.get_buffer());
-        let mut first_packet = true;
         let mut current_id = 1;
         loop {
-            let mut buf = bufs.pop().unwrap();
-            let (received, n) = {
-                let len = buf.len();
-                let mut cur = MutSliceBuf::wrap(&mut buf);
-                (self.socket.recv_from(&mut cur), len - cur.remaining())
-            };
-            match received {
-                Ok(Some(from)) => {
-                    if first_packet && self.remote_addr.ip() == from.ip() {
-                        self.remote_addr = SocketAddr::new(self.remote_addr.ip(), from.port());
-                        first_packet = false;
-                    }
-                    if from != self.remote_addr {
-                        bufs.push(buf);
-                        continue
-                    }
-                    let packet = RawPacket::new(buf, n);
-                    {
-                        match packet.decode::<DataPacketOctet>() {
-                            Some(data_packet) => {
-                                if current_id == data_packet.block_id() {
-                                    try!(writer.write_all(data_packet.data()));
-                                    let ack = AckPacket::new(data_packet.block_id());
-                                    let buf = bufs.pop().unwrap();
-                                    let encoded = ack.encode_using(buf);
-                                    {
-                                        let mut buf = Cursor::new(encoded.packet_buf());
-                                        try!(self.socket.send_to(&mut buf, &self.remote_addr));
-                                    }
-                                    if data_packet.data().len() < MAX_DATA_SIZE {
-                                        println!("Transfer complete");
-                                        break;
-                                    }
-                                    bufs.push(encoded.get_buffer());
-                                    current_id += 1;
-                                } else {
-                                    println!("Unexpected packet id: got={}, expected={}",
-                                           data_packet.block_id(), current_id);
-                                }
-                            }
-                            None => {
-                                match packet.decode::<ErrorPacket>() {
-                                    Some(err) => {
-                                        return Err(io::Error::new(io::ErrorKind::Other, "todo"))
-                                     }
-                                    None => {
-                                        //let opcode = packet.opcode().map(|o| format!("{}", o))
-                                                                    //.unwrap_or("Unknown".to_string());
-                                        //println!("Unexpected packet type: iopcode={}", opcode)
-                                        println!("Unexpected packet type: {}", packet.opcode().unwrap() as u16);
-                                    }
+            match self.c.receive_data() {
+                Ok(data_packet) => {
+                    if current_id == data_packet.block_id() {
+                        try!(self.c.send_ack(data_packet.block_id()));
 
-                                }
-                            }
+                        try!(writer.write_all(data_packet.data()));
+                        if data_packet.data().len() < MAX_DATA_SIZE {
+                            println!("Transfer complete");
+                            break;
                         }
+                        current_id += 1;
+                    } else {
+                        println!("Unexpected packet id: got={}, expected={}",
+                                 data_packet.block_id(), current_id);
                     }
-                    bufs.push(packet.get_buffer());
                 }
-                Ok(None) => {
-                    bufs.push(buf);
-                    continue
-                },
-                Err(e) => {
-                    bufs.push(buf);
-                    return Err(e);
-                }
+                Err(_) => return Err(io::Error::new(io::ErrorKind::Other, "todo"))
             }
         }
         return Ok(())
