@@ -2,32 +2,57 @@
 //!
 //! This module contains the ability to read data from or write data to a remote TFTP server.
 
+use std::convert::From;
 use std::io::{self, Cursor};
 use std::path::Path;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::result;
+use std::error;
+use std::fmt;
 
 use packet::{Mode, RequestPacket, DataPacketOctet, AckPacket, ErrorPacket,
-             EncodePacket, RawPacket, Error, Opcode};
+             EncodePacket, RawPacket, Opcode};
 
 use mio::udp::UdpSocket;
 use bytes::{MutSliceBuf, MutBuf};
 
 static MAX_DATA_SIZE: usize = 512;
 
-//#[derive(Debug, Clone)]
-//pub enum ClientError {
-    //TftpError(Error, String),
-    //IoError(IoError),
-//}
+#[derive(Debug)]
+pub enum Error {
+    Io(io::Error),
+}
 
-//impl ClientError {
-    //pub fn from_io(err: IoError) -> ClientError {
-        //ClientError::IoError(err)
-    //}
-//}
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::Io(ref err) => write!(f, "IO error: {}", err),
+        }
+    }
+}
 
-//pub type ClientResult<T> = Result<T, ClientError>;
+impl error::Error for Error {
+    fn description(&self) -> &str {
+        match *self {
+            Error::Io(ref err) => err.description(),
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            Error::Io(ref err) => Some(err),
+        }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Error {
+        Error::Io(err)
+    }
+}
+
+pub type Result<T> = result::Result<T, Error>;
 
 trait PacketSender {
     fn send_read_request(&self, path: &str, mode: Mode) -> io::Result<()>;
@@ -101,19 +126,18 @@ pub struct Client {
 
 impl Client {
     /// Creates a new client and binds an UDP socket.
-    pub fn new(remote_addr: SocketAddr) -> io::Result<Client> {
+    pub fn new(remote_addr: SocketAddr) -> Result<Client> {
         // FIXME: address should not be hardcoded
         let addr = FromStr::from_str("127.0.0.1:0").unwrap();
-        UdpSocket::bound(&addr).map(|socket| {
-            Client{ c: InternalClient::new(socket, remote_addr) }
-        })
+        let socket = try!(UdpSocket::bound(&addr));
+        Ok(Client{ c: InternalClient::new(socket, remote_addr) })
     }
 
     /// A TFTP read request
     ///
     /// Get a file `path` from the server using a `mode`. Received data is written to
     /// the `writer`.
-    pub fn get(&mut self, path: &Path, mode: Mode, writer: &mut io::Write) -> io::Result<()> {
+    pub fn get(&mut self, path: &Path, mode: Mode, writer: &mut io::Write) -> Result<()> {
         try!(self.c.send_read_request(&path.to_string_lossy(), mode));
 
         let mut current_id = 1;
@@ -134,7 +158,7 @@ impl Client {
                                  data_packet.block_id(), current_id);
                     }
                 }
-                Err(_) => return Err(io::Error::new(io::ErrorKind::Other, "todo"))
+                Err(_) => return Err(From::from(io::Error::new(io::ErrorKind::Other, "todo")))
             }
         }
         return Ok(())
@@ -143,7 +167,7 @@ impl Client {
     /// A TFTP write request
     ///
     /// Put a file `path` to the server using a `mode`.
-    pub fn put(&mut self, _path: &Path, _mode: Mode, _reader: &mut io::Read) -> io::Result<()> {
+    pub fn put(&mut self, _path: &Path, _mode: Mode, _reader: &mut io::Read) -> Result<()> {
         //let mut bufs = Vec::from_fn(2, |_| Vec::from_elem(MAX_DATA_SIZE + 4, 0));
         //let mut read_buffer = Vec::from_elem(MAX_DATA_SIZE, 0);
 
