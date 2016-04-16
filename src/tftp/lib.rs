@@ -14,7 +14,7 @@
 //! - RFC 1350 - TFTP Protocol (revision 2) (http://tools.ietf.org/html/rfc1350)
 
 #![crate_name = "tftp"]
-#![feature(test, into_cow)]
+#![cfg_attr(test, feature(test))]
 
 extern crate mio;
 extern crate bytes;

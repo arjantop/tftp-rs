@@ -1,4 +1,3 @@
-#![feature(ip_addr)]
 extern crate tftp;
 
 use std::io::BufWriter;

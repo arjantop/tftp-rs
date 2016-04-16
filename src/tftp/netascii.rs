@@ -1,5 +1,6 @@
 //! Netascii string utilities.
-use std::borrow::{Cow, IntoCow};
+use std::borrow::Cow;
+use std::convert::From;
 
 /// Netascii encoded string
 pub type NetasciiString<'a> = Cow<'a, str>;
@@ -19,7 +20,7 @@ fn is_escape_required(s: &str) -> bool {
 /// Returns `None` if the input string contains invalid scape sequence.
 pub fn from_netascii<'a>(s: &'a str) -> Option<Cow<'a, str>> {
     if !is_escape_required(s) {
-        return Some(s.into_cow())
+        return Some(Cow::from(s))
     }
     let mut decoded = String::new();
     let mut chars = s.chars();
@@ -37,7 +38,7 @@ pub fn from_netascii<'a>(s: &'a str) -> Option<Cow<'a, str>> {
             None => break
         }
     }
-    return Some(decoded.into_cow())
+    return Some(Cow::from(decoded))
 }
 
 /// Coverts a string slice into netascii encoded string without performing any
@@ -48,7 +49,7 @@ pub fn from_netascii<'a>(s: &'a str) -> Option<Cow<'a, str>> {
 /// If escaping is required new string is allocated, escaped and returned.
 pub fn to_netascii<'a>(s: &'a str) -> NetasciiString<'a> {
     if !is_escape_required(s) {
-        return s.into_cow()
+        return Cow::from(s)
     }
     let mut encoded = String::new();
     for c in s.chars() {
@@ -58,12 +59,13 @@ pub fn to_netascii<'a>(s: &'a str) -> NetasciiString<'a> {
             _ => encoded.push(c)
         }
     }
-    return encoded.into_cow()
+    return Cow::from(encoded)
 }
 
 #[cfg(test)]
 mod test {
-    use std::borrow::IntoCow;
+    use std::borrow::Cow;
+    use std::convert::From;
 
     use super::{from_netascii, to_netascii};
 
@@ -75,49 +77,49 @@ mod test {
     #[test]
     fn from_netascii_newline_is_unescaped() {
         let decoded = from_netascii("\r\n");
-        assert_eq!(Some("\n".into_cow()), decoded);
+        assert_eq!(Some(Cow::from("\n")), decoded);
     }
 
     #[test]
     fn from_netascii_carriage_return_is_unescaped() {
         let decoded = from_netascii("\r\0");
-        assert_eq!(Some("\r".into_cow()), decoded);
+        assert_eq!(Some(Cow::from("\r")), decoded);
     }
 
     #[test]
     fn from_netascii_string_with_escaping() {
         let decoded = from_netascii(TEXT_NETASCII);
-        assert_eq!(Some(TEXT_NORMAL.into_cow()), decoded);
+        assert_eq!(Some(Cow::from(TEXT_NORMAL)), decoded);
     }
 
     #[test]
     fn from_netascii_string_without_escaping() {
         let decoded = from_netascii(TEXT_NOESCAPE);
-        assert_eq!(Some(TEXT_NOESCAPE.into_cow()), decoded);
+        assert_eq!(Some(Cow::from(TEXT_NOESCAPE)), decoded);
     }
 
     #[test]
     fn to_netascii_newline_is_escaped() {
         let decoded = to_netascii("\n");
-        assert_eq!("\r\n".into_cow(), decoded);
+        assert_eq!(Cow::from("\r\n"), decoded);
     }
 
     #[test]
     fn to_netascii_carriage_return_is_escaped() {
         let decoded = to_netascii("\r");
-        assert_eq!("\r\0".into_cow(), decoded);
+        assert_eq!(Cow::from("\r\0"), decoded);
     }
 
     #[test]
     fn to_netascii_string_with_escaping() {
         let decoded = to_netascii(TEXT_NORMAL);
-        assert_eq!(TEXT_NETASCII.into_cow(), decoded);
+        assert_eq!(Cow::from(TEXT_NETASCII), decoded);
     }
 
     #[test]
     fn to_netascii_string_without_escaping() {
         let decoded = to_netascii(TEXT_NOESCAPE);
-        assert_eq!(TEXT_NOESCAPE.into_cow(), decoded);
+        assert_eq!(Cow::from(TEXT_NOESCAPE), decoded);
     }
 }
 

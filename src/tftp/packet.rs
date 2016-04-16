@@ -3,7 +3,8 @@
 extern crate byteorder;
 
 use std::io::{Write, Cursor};
-use std::borrow::{Cow, IntoCow};
+use std::borrow::Cow;
+use std::convert::From;
 use std::error;
 use std::fmt;
 use std::str::{self, FromStr};
@@ -272,7 +273,7 @@ impl<'a> DecodePacket<'a> for RequestPacket<'a> {
         }
         // FIXME
         str::from_utf8(&data[2..]).ok().map(|s| s.split('\0')).and_then(|mut parts| {
-            let filename = parts.next().map(|s| s.into_cow());
+            let filename = parts.next().map(|s| Cow::from(s));
             let mode = parts.next().and_then(|m| FromStr::from_str(m).ok());
             match (filename, mode) {
                 (Some(filename), Some(mode)) => {
@@ -375,7 +376,7 @@ impl<'a> DataPacketOctet<'a> {
     pub fn from_slice(block_id: u16, data: &[u8]) -> DataPacketOctet {
         DataPacketOctet{
             block_id: block_id,
-            data: data.into_cow(),
+            data: Cow::from(data),
             len: data.len()
         }
     }
@@ -384,7 +385,7 @@ impl<'a> DataPacketOctet<'a> {
     pub fn from_vec(block_id: u16, data: Vec<u8>, len: usize) -> DataPacketOctet<'static> {
         DataPacketOctet{
             block_id: block_id,
-            data: data.into_cow(),
+            data: Cow::from(data),
             len: len
         }
     }
@@ -591,7 +592,8 @@ mod test {
     extern crate quickcheck;
     extern crate rand;
 
-    use std::borrow::{Cow, IntoCow};
+    use std::borrow::Cow;
+    use std::convert::From;
 
     use self::rand::Rng;
     use self::quickcheck::{quickcheck, Arbitrary, Gen};
@@ -606,9 +608,9 @@ mod test {
             let str_len = g.gen_range(0usize, 50);
             let filename: String = g.gen_ascii_chars().take(str_len).collect();
             if g.gen() {
-                RequestPacket::ReadRequest(filename.into_cow(), transfer_type)
+                RequestPacket::ReadRequest(Cow::from(filename), transfer_type)
             } else {
-                RequestPacket::WriteRequest(filename.into_cow(), transfer_type)
+                RequestPacket::WriteRequest(Cow::from(filename), transfer_type)
             }
         }
     }
@@ -635,7 +637,7 @@ mod test {
             let message: String = g.gen_ascii_chars().take(msg_len).collect();
             ErrorPacket{
                 error: error,
-                message: message.into_cow()
+                message: Cow::from(message)
             }
         }
     }
