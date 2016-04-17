@@ -14,16 +14,10 @@ path = "src/tftp/lib.rs"
 name = "get"
 path = "examples/client/get.rs"
 
-[[example]]
-
-name = "put"
-path = "examples/client/put.rs"
-
 [dependencies]
 
 byteorder = "*"
 mio = "*"
-bytes = "*"
 
 [dev-dependencies]
 

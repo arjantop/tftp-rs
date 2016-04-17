@@ -17,7 +17,6 @@
 #![cfg_attr(test, feature(test))]
 
 extern crate mio;
-extern crate bytes;
 
 pub mod packet;
 pub mod netascii;

@@ -3,7 +3,7 @@
 //! This module contains the ability to read data from or write data to a remote TFTP server.
 
 use std::convert::From;
-use std::io::{self, Cursor};
+use std::io;
 use std::path::Path;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -15,7 +15,6 @@ use packet::{Mode, RequestPacket, DataPacketOctet, AckPacket, ErrorPacket,
              EncodePacket, RawPacket, Opcode};
 
 use mio::udp::UdpSocket;
-use bytes::{MutSliceBuf, MutBuf};
 
 static MAX_DATA_SIZE: usize = 512;
 
@@ -78,15 +77,15 @@ impl PacketSender for InternalClient {
     fn send_read_request(&self, path: &str, mode: Mode) -> io::Result<()> {
         let read_request = RequestPacket::read_request(path, mode);
         let encoded = read_request.encode();
-        let mut buf = Cursor::new(encoded.packet_buf());
-        self.socket.send_to(&mut buf, &self.remote_addr).map(|_| ())
+        let buf = encoded.packet_buf();
+        self.socket.send_to(&buf, &self.remote_addr).map(|_| ())
     }
 
     fn send_ack(&self, block_id: u16) -> io::Result<()> {
         let ack = AckPacket::new(block_id);
         let encoded = ack.encode();
-        let mut buf = Cursor::new(encoded.packet_buf());
-        self.socket.send_to(&mut buf, &self.remote_addr).map(|_| ())
+        let buf = encoded.packet_buf();
+        self.socket.send_to(&buf, &self.remote_addr).map(|_| ())
     }
 }
 
@@ -94,19 +93,15 @@ impl PacketReceiver for InternalClient {
     fn receive_data(&mut self) -> io::Result<DataPacketOctet<'static>> {
         loop {
             let mut buf = vec![0; MAX_DATA_SIZE + 4];
-            let (result, n) = {
-                let len = buf.len();
-                let mut cur = MutSliceBuf::wrap(&mut buf);
-                (self.socket.recv_from(&mut cur), len - cur.remaining())
-            };
-            match result {
+            let result = match self.socket.recv_from(&mut buf) {
+                Ok(Some(result)) => Ok(result),
                 Ok(None) => {
                     continue;
                 }
-                _ => ()
-            }
-            return result.map(|from| {
-                self.remote_addr = from.expect("no remote address");
+                Err(err) => Err(err)
+            };
+            return result.map(|(n, from)| {
+                self.remote_addr = from;
                 RawPacket::new(buf, n)
             }).and_then(|packet| {
                 match packet.opcode() {
@@ -163,76 +158,4 @@ impl Client {
         }
         return Ok(())
     }
-
-    /// A TFTP write request
-    ///
-    /// Put a file `path` to the server using a `mode`.
-    pub fn put(&mut self, _path: &Path, _mode: Mode, _reader: &mut io::Read) -> Result<()> {
-        //let mut bufs = Vec::from_fn(2, |_| Vec::from_elem(MAX_DATA_SIZE + 4, 0));
-        //let mut read_buffer = Vec::from_elem(MAX_DATA_SIZE, 0);
-
-        //let read_request = RequestPacket::write_request(path.as_str().expect("utf-8 path"), mode);
-        //let encoded = read_request.encode_using(bufs.pop().unwrap());
-        //try!(self.socket.send_to(encoded.packet_buf(), self.remote_addr));
-
-        //bufs.push(encoded.get_buffer());
-        //let mut first_packet = true;
-        //let mut last_packet = false;
-        //let mut current_id = 0;
-        //loop {
-            //let mut buf = bufs.pop().unwrap();
-            //match self.socket.recv_from(buf.as_mut_slice()) {
-                //Ok((n, from)) => {
-                    //if first_packet && self.remote_addr.ip == from.ip {
-                        //self.remote_addr.port = from.port;
-                        //first_packet = false;
-                    //}
-                    //if from != self.remote_addr {
-                        //bufs.push(buf);
-                        //continue
-                    //}
-                    //let packet = RawPacket::new(buf, n);
-                    //{
-                        //let ack_packet: Option<AckPacket> = packet.decode();
-                        //match ack_packet {
-                            //Some(dp) => {
-                                //if current_id == dp.block_id() {
-                                    //if last_packet {
-                                        //println!("done");
-                                        //break
-                                    //}
-                                    //let bytes_read = try!(self.read_block(reader, read_buffer.as_mut_slice()));
-                                    //if bytes_read < MAX_DATA_SIZE {
-                                        //last_packet = true;
-                                    //}
-                                    //let ack = DataPacketOctet::from_slice(dp.block_id() + 1, read_buffer.slice_to(bytes_read));
-                                    //let buf = bufs.pop().unwrap();
-                                    //let encoded = ack.encode_using(buf);
-                                    //try!(self.socket.send_to(encoded.packet_buf(), self.remote_addr));
-                                    //bufs.push(encoded.get_buffer());
-                                    //current_id += 1;
-                                //} else {
-                                    //println!("wrong packet id");
-                                //}
-                            //}
-                            //None => fail!("not a data packet")
-                        //}
-                    //}
-                    //bufs.push(packet.get_buffer());
-                //}
-                //Err(ref e) => fail!("error = {}", e)
-            //}
-        //}
-        return Ok(())
-    }
-
-    //fn read_block(&mut self, reader: &mut Reader, buf: &mut [u8]) -> IoResult<usize> {
-        //reader.read(buf).or_else(|e| {
-            //if e.kind == old_io::IoErrorKind::EndOfFile {
-                //Ok(0usize)
-            //} else {
-                //Err(e)
-            //}
-        //})
-    //}
 }
