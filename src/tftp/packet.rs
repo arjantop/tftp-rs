@@ -824,7 +824,8 @@ mod bench {
         let data = vec![1u8; 100];
         let packet = DataPacketOctet::from_slice(1, &data[..]);
         let raw_packet = packet.encode();
-        b.iter(|| {
+
+        b.bench_n(N as u64, |b: &mut Bencher| {
             let mut buf = vec!(0u8; 512);
             for _ in 0..N {
                 let encoded = packet.encode_using(buf);
