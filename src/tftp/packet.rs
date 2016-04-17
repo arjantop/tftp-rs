@@ -581,9 +581,14 @@ impl RawPacket {
 
     /// Moves the buffer out of this object and returns it, consuming the `RawPacket`.
     ///
-    /// This method should be used for maximal buffer reuse.
+    /// This method should be used for maximal buffer reuse. Memory is zeroed before returning.
     pub fn get_buffer(self) -> Vec<u8> {
-        self.buf
+        let mut buffer = self.buf;
+        // TODO: optimize
+        for x in buffer.iter_mut() {
+            *x = 0 ;
+        }
+        buffer
     }
 }
 
@@ -745,6 +750,14 @@ mod test {
         }
         quickcheck(prop as fn(ErrorPacket<'static>) -> bool)
     }
+
+    #[test]
+    fn packet_buffer_is_zeroes_before_reuse() {
+        let packet = AckPacket::new(1);
+        let raw_packet = packet.encode();
+        let expected = vec![0; 4];
+        assert_eq!(expected, raw_packet.get_buffer());
+    }
 }
 
 #[cfg(test)]
@@ -831,8 +844,8 @@ mod bench {
                 let encoded = packet.encode_using(buf);
                 buf = encoded.get_buffer();
             }
+            b.bytes = (raw_packet.len() * N) as u64;
         });
-        b.bytes = (raw_packet.len() * N) as u64;
     }
 
     #[bench]
