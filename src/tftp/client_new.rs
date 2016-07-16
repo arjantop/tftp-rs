@@ -21,13 +21,33 @@ use rotor::{Machine, Response, Scope, EarlyScope};
 
 static MAX_DATA_SIZE: usize = 512;
 
+quick_error! {
+    #[derive(Debug)]
+    pub enum Error {
+        Io(err: io::Error) {
+            from()
+            description("io error")
+            display("I/O error: {}", err)
+            cause(err)
+        }
+        Server(err: ErrorPacket<'static>) {
+            from()
+            description("server error")
+            display("Server error: {}", err)
+            cause(err)
+        }
+    }
+}
+
+type Result<T> = result::Result<T, Error>;
+
 trait PacketSender {
-    fn send_read_request(&self, path: &str, mode: Mode) -> io::Result<()>;
-    fn send_ack(&self, block_id: u16) -> io::Result<Option<()>>;
+    fn send_read_request(&self, path: &str, mode: Mode) -> Result<()>;
+    fn send_ack(&self, block_id: u16) -> Result<Option<()>>;
 }
 
 trait PacketReceiver {
-    fn receive_data(&mut self) -> io::Result<DataPacketOctet<'static>>;
+    fn receive_data(&mut self) -> Result<Option<DataPacketOctet<'static>>>;
 }
 
 struct InternalClient {
@@ -42,43 +62,40 @@ impl InternalClient {
 }
 
 impl PacketSender for InternalClient {
-    fn send_read_request(&self, path: &str, mode: Mode) -> io::Result<()> {
+    fn send_read_request(&self, path: &str, mode: Mode) -> Result<()> {
         let read_request = RequestPacket::read_request(path, mode);
         let encoded = read_request.encode();
         let buf = encoded.packet_buf();
-        self.socket.send_to(&buf, &self.remote_addr).map(|_| ())
+        self.socket.send_to(&buf, &self.remote_addr).map(|_| ()).map_err(From::from)
     }
 
-    fn send_ack(&self, block_id: u16) -> io::Result<Option<()>> {
+    fn send_ack(&self, block_id: u16) -> Result<Option<()>> {
         let ack = AckPacket::new(block_id);
         let encoded = ack.encode();
         let buf = encoded.packet_buf();
-        self.socket.send_to(&buf, &self.remote_addr).map(|opt| opt.map(|_| ()))
+        self.socket.send_to(&buf, &self.remote_addr).map(|opt| opt.map(|_| ())).map_err(From::from)
     }
 }
 
 impl PacketReceiver for InternalClient {
-    fn receive_data(&mut self) -> io::Result<DataPacketOctet<'static>> {
-        loop {
-            let mut buf = vec![0; MAX_DATA_SIZE + 4];
-            let result = match self.socket.recv_from(&mut buf) {
-                Ok(Some(result)) => Ok(result),
-                Ok(None) => {
-                    continue;
-                }
-                Err(err) => Err(err)
-            };
-            return result.map(|(n, from)| {
-                self.remote_addr = from;
-                RawPacket::new(buf, n)
-            }).and_then(|packet| {
-                match packet.opcode() {
-                    Some(Opcode::DATA) => packet.decode::<DataPacketOctet>().ok_or(io::Error::new(io::ErrorKind::Other, "todo")),
-                    Some(Opcode::ERROR) => Err(io::Error::new(io::ErrorKind::Other, "error")),
-                    _ => Err(io::Error::new(io::ErrorKind::Other, "unexpected"))
-                }
-            })
-        }
+    fn receive_data(&mut self) -> Result<Option<DataPacketOctet<'static>>> {
+        let mut buf = vec![0; MAX_DATA_SIZE + 4];
+        let result = try!(self.socket.recv_from(&mut buf));
+        let p = result.map(|(n, from)| {
+            self.remote_addr = from;
+            RawPacket::new(buf, n)
+        }).map(|packet| {
+            match packet.opcode() {
+                Some(Opcode::DATA) => {
+                    packet.decode::<DataPacketOctet>().unwrap()
+//                        .ok_or(io::Error::new(io::ErrorKind::Other, "todo")))
+                },
+                _ => unimplemented!(),
+//                Some(Opcode::ERROR) => return Err(From::from(io::Error::new(io::ErrorKind::Other, "error"))),
+//                _ => return Err(From::from(io::Error::new(io::ErrorKind::Other, "unexpected"))),
+            }
+        });
+        Ok(p)
     }
 }
 
@@ -125,7 +142,10 @@ impl<'a> Machine for Client<'a> {
                 Response::ok(Client::ReceivingData(state, 1))
             }
             Client::ReceivingData(mut state, current_id) => {
-                let data_packet = state.client.receive_data().unwrap();
+                let data_packet = match state.client.receive_data().unwrap() {
+                    Some(data_packet) => data_packet,
+                    None => return Response::ok(Client::ReceivingData(state, current_id)),
+                };
                 if current_id == data_packet.block_id() {
                     Client::SendAck(state, data_packet).ready(events, scope)
                 } else {

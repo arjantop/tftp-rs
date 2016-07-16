@@ -18,6 +18,7 @@
 
 extern crate mio;
 extern crate rotor;
+#[macro_use(quick_error)] extern crate quick_error;
 
 pub mod packet;
 pub mod netascii;
