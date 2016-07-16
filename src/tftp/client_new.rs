@@ -106,6 +106,7 @@ struct ClientState<'a> {
     path: &'a Path,
     mode: Mode,
     writer: &'a mut io::Write,
+    error: Option<Error>,
 }
 
 enum Client<'a> {
@@ -118,6 +119,11 @@ impl<'a> Client<'a> {
     fn new(scope: &mut EarlyScope, client_state: ClientState<'a>) -> Response<Client<'a>, Void> {
         scope.register(&client_state.client.socket, EventSet::writable(), PollOpt::level()).unwrap();
         Response::ok(Client::Idle(client_state))
+    }
+
+    fn finish(scope: &mut Scope<Context>) -> Response<Self, Void> {
+        scope.shutdown_loop();
+        Response::done()
     }
 }
 
@@ -163,8 +169,7 @@ impl<'a> Machine for Client<'a> {
                     state.writer.write_all(data_packet.data()).unwrap();
                     if data_packet.data().len() < MAX_DATA_SIZE {
                         println!("Transfer complete");
-                        scope.shutdown_loop();
-                        Response::done()
+                        Client::finish(scope)
                     } else {
                         if events.is_writable() {
                             scope.reregister(&state.client.socket, EventSet::readable(), PollOpt::level()).unwrap();
@@ -206,6 +211,7 @@ pub fn get(path: &Path, mode: Mode, writer: &mut io::Write) {
         path: path,
         mode: mode,
         writer: writer,
+        error: None,
     };
     loop_creator.add_machine_with(|scope| {
         Client::new(scope, state)
