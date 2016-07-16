@@ -17,8 +17,10 @@
 #![cfg_attr(test, feature(test))]
 
 extern crate mio;
+extern crate rotor;
 
 pub mod packet;
 pub mod netascii;
 
 pub mod client;
+pub mod client_new;
