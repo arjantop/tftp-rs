@@ -99,14 +99,25 @@ impl PacketReceiver for InternalClient {
     }
 }
 
-struct Context;
+macro_rules! mtry {
+    ($s: ident, $e:expr) => (match $e {
+        Ok(val) => val,
+        Err(err) => {
+            $s.error = Some(::std::convert::From::from(err));
+            return Client::finish($s);
+        },
+    });
+}
+
+struct Context {
+    error: Option<Error>,
+}
 
 struct ClientState<'a> {
     client: InternalClient,
     path: &'a Path,
     mode: Mode,
     writer: &'a mut io::Write,
-    error: Option<Error>,
 }
 
 enum Client<'a> {
@@ -142,13 +153,13 @@ impl<'a> Machine for Client<'a> {
 //        println!("ready: {:?}", events);
         match self {
             Client::Idle(state) => {
-                state.client.send_read_request(state.path.to_str().unwrap(), Mode::Octet).unwrap();
+                mtry!(scope, state.client.send_read_request(state.path.to_str().unwrap(), Mode::Octet));
                 println!("Starting transfer ...");
-                scope.reregister(&state.client.socket, EventSet::readable(), PollOpt::level()).unwrap();
+                mtry!(scope, scope.reregister(&state.client.socket, EventSet::readable(), PollOpt::level()));
                 Response::ok(Client::ReceivingData(state, 1))
             }
             Client::ReceivingData(mut state, current_id) => {
-                let data_packet = match state.client.receive_data().unwrap() {
+                let data_packet = match mtry!(scope, state.client.receive_data()) {
                     Some(data_packet) => data_packet,
                     None => return Response::ok(Client::ReceivingData(state, current_id)),
                 };
@@ -161,18 +172,18 @@ impl<'a> Machine for Client<'a> {
                 }
             }
             Client::SendAck(state, data_packet) => {
-                if state.client.send_ack(data_packet.block_id()).unwrap().is_none() {
-                    scope.reregister(&state.client.socket, EventSet::writable(), PollOpt::level()).unwrap();
+                if mtry!(scope, state.client.send_ack(data_packet.block_id())).is_none() {
+                    mtry!(scope, scope.reregister(&state.client.socket, EventSet::writable(), PollOpt::level()));
                     println!("Could not send ack for packet id={}", data_packet.block_id());
                     Response::ok(Client::SendAck(state, data_packet))
                 } else {
-                    state.writer.write_all(data_packet.data()).unwrap();
+                    mtry!(scope, state.writer.write_all(data_packet.data()));
                     if data_packet.data().len() < MAX_DATA_SIZE {
                         println!("Transfer complete");
                         Client::finish(scope)
                     } else {
                         if events.is_writable() {
-                            scope.reregister(&state.client.socket, EventSet::readable(), PollOpt::level()).unwrap();
+                            mtry!(scope, scope.reregister(&state.client.socket, EventSet::readable(), PollOpt::level()));
                         }
                         Response::ok(Client::ReceivingData(state, data_packet.block_id() + 1))
                     }
@@ -211,10 +222,12 @@ pub fn get(path: &Path, mode: Mode, writer: &mut io::Write) {
         path: path,
         mode: mode,
         writer: writer,
-        error: None,
     };
     loop_creator.add_machine_with(|scope| {
         Client::new(scope, state)
     }).unwrap();
-    loop_creator.run(Context).unwrap();
+    let context = Context {
+        error: None,
+    };
+    loop_creator.run(context).unwrap();
 }
