@@ -124,7 +124,7 @@ impl Client {
     pub fn new(remote_addr: SocketAddr) -> Result<Client> {
         // FIXME: address should not be hardcoded
         let addr = FromStr::from_str("127.0.0.1:0").unwrap();
-        let socket = try!(UdpSocket::bound(&addr));
+        let socket = try!(UdpSocket::bind(&addr));
         Ok(Client{ c: InternalClient::new(socket, remote_addr) })
     }
 

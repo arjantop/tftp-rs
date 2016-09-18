@@ -17,8 +17,7 @@ path = "examples/client/get_new.rs"
 
 [dependencies]
 byteorder = "*"
-mio = "*"
-rotor = "*"
+mio = "0.6"
 void = "*"
 quick-error = "*"
 

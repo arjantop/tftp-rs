@@ -13,11 +13,10 @@ use std::fmt;
 use std::str;
 
 use packet::{Mode, RequestPacket, DataPacketOctet, AckPacket, ErrorPacket,
-             EncodePacket, RawPacket, Opcode};
+    EncodePacket, RawPacket, Opcode};
 
 use mio::udp::UdpSocket;
-use rotor::{EventSet, PollOpt, Loop, Config, Void};
-use rotor::{Machine, Response, Scope, EarlyScope};
+use mio::{Events, Poll, PollOpt, Event, Token, Ready};
 
 static MAX_DATA_SIZE: usize = 512;
 
@@ -88,146 +87,141 @@ impl PacketReceiver for InternalClient {
             match packet.opcode() {
                 Some(Opcode::DATA) => {
                     packet.decode::<DataPacketOctet>().unwrap()
-//                        .ok_or(io::Error::new(io::ErrorKind::Other, "todo")))
+                    //                        .ok_or(io::Error::new(io::ErrorKind::Other, "todo")))
                 },
                 _ => unimplemented!(),
-//                Some(Opcode::ERROR) => return Err(From::from(io::Error::new(io::ErrorKind::Other, "error"))),
-//                _ => return Err(From::from(io::Error::new(io::ErrorKind::Other, "unexpected"))),
+                //                Some(Opcode::ERROR) => return Err(From::from(io::Error::new(io::ErrorKind::Other, "error"))),
+                //                _ => return Err(From::from(io::Error::new(io::ErrorKind::Other, "unexpected"))),
             }
         });
         Ok(p)
     }
 }
 
-macro_rules! mtry {
-    ($s: ident, $e:expr) => (match $e {
-        Ok(val) => val,
-        Err(err) => {
-            $s.error = Some(::std::convert::From::from(err));
-            return Client::finish($s);
-        },
-    });
+//macro_rules! mtry {
+//    ($s: ident, $e:expr) => (match $e {
+//        Ok(val) => val,
+//        Err(err) => {
+//            $s.error = Some(::std::convert::From::from(err));
+//            return Client::finish($s);
+//        },
+//    });
+//}
+
+
+enum ClientStates {
+    ReceivingData(u16),
+    SendAck(DataPacketOctet<'static>),
+    Done,
 }
 
-struct Context {
-    error: Option<Error>,
+impl ClientStates {
+    fn is_done(&self) -> bool {
+        match self {
+            &ClientStates::Done => true,
+            _ => false,
+        }
+    }
 }
 
-struct ClientState<'a> {
+struct Client<'a> {
+    poll: Poll,
     client: InternalClient,
     path: &'a Path,
     mode: Mode,
     writer: &'a mut io::Write,
 }
 
-enum Client<'a> {
-    Idle(ClientState<'a>),
-    ReceivingData(ClientState<'a>, u16),
-    SendAck(ClientState<'a>, DataPacketOctet<'static>),
+const CLIENT: Token = Token(0);
+
+impl<'a> Client<'a> {
+    fn new(poll: Poll, client: InternalClient, path: &'a Path, mode: Mode, writer: &'a mut io::Write) -> Client<'a> {
+        Client {
+            poll: poll,
+            client: client,
+            path: path,
+            mode: mode,
+            writer: writer,
+        }
+    }
+
+    //    fn finish(scope: &mut Scope<Context>) -> Response<Self, Void> {
+    //        scope.shutdown_loop();
+    //        Response::done()
+    //    }
 }
 
 impl<'a> Client<'a> {
-    fn new(scope: &mut EarlyScope, client_state: ClientState<'a>) -> Response<Client<'a>, Void> {
-        scope.register(&client_state.client.socket, EventSet::writable(), PollOpt::level()).unwrap();
-        Response::ok(Client::Idle(client_state))
-    }
+    fn get(&mut self) {
+        let mut events = Events::with_capacity(1024);
+        let mut current_state = ClientStates::ReceivingData(1);
 
-    fn finish(scope: &mut Scope<Context>) -> Response<Self, Void> {
-        scope.shutdown_loop();
-        Response::done()
-    }
-}
+        self.client.send_read_request(self.path.to_str().unwrap(), Mode::Octet).unwrap();
+        println!("Starting transfer ...");
+        self.poll.register(&self.client.socket, CLIENT, Ready::readable(), PollOpt::level()).unwrap();
 
-impl<'a> Machine for Client<'a> {
-    type Context = Context;
-    type Seed = Void;
-
-    fn create(_: Void, scope: &mut Scope<Context>) -> Response<Self, Void>
-    {
-        println!("create");
-        unreachable!();
-    }
-
-    fn ready(self, events: EventSet, scope: &mut Scope<Context>) -> Response<Self, Void>
-    {
-//        println!("ready: {:?}", events);
-        match self {
-            Client::Idle(state) => {
-                mtry!(scope, state.client.send_read_request(state.path.to_str().unwrap(), Mode::Octet));
-                println!("Starting transfer ...");
-                mtry!(scope, scope.reregister(&state.client.socket, EventSet::readable(), PollOpt::level()));
-                Response::ok(Client::ReceivingData(state, 1))
-            }
-            Client::ReceivingData(mut state, current_id) => {
-                let data_packet = match mtry!(scope, state.client.receive_data()) {
-                    Some(data_packet) => data_packet,
-                    None => return Response::ok(Client::ReceivingData(state, current_id)),
-                };
-                if current_id == data_packet.block_id() {
-                    Client::SendAck(state, data_packet).ready(events, scope)
-                } else {
-                    println!("Unexpected packet id: got={}, expected={}",
-                             data_packet.block_id(), current_id);
-                    Response::ok(Client::ReceivingData(state, current_id))
-                }
-            }
-            Client::SendAck(state, data_packet) => {
-                if mtry!(scope, state.client.send_ack(data_packet.block_id())).is_none() {
-                    mtry!(scope, scope.reregister(&state.client.socket, EventSet::writable(), PollOpt::level()));
-                    println!("Could not send ack for packet id={}", data_packet.block_id());
-                    Response::ok(Client::SendAck(state, data_packet))
-                } else {
-                    mtry!(scope, state.writer.write_all(data_packet.data()));
-                    if data_packet.data().len() < MAX_DATA_SIZE {
-                        println!("Transfer complete");
-                        Client::finish(scope)
-                    } else {
-                        if events.is_writable() {
-                            mtry!(scope, scope.reregister(&state.client.socket, EventSet::readable(), PollOpt::level()));
+        loop {
+            self.poll.poll(&mut events, None).unwrap();
+            for event in events.iter() {
+                match event.token() {
+                    CLIENT => {
+                        current_state = self.handle_event(current_state, event);
+                        if current_state.is_done() {
+                            return;
                         }
-                        Response::ok(Client::ReceivingData(state, data_packet.block_id() + 1))
                     }
+                    _ => unreachable!(),
                 }
             }
         }
     }
 
-    fn spawned(self, _scope: &mut Scope<Context>) -> Response<Self, Void>
-    {
-        println!("spawned");
-        unreachable!();
-    }
-
-    fn timeout(self, _scope: &mut Scope<Context>) -> Response<Self, Void>
-    {
-        println!("timeout");
-        unreachable!();
-    }
-
-    fn wakeup(self, _scope: &mut Scope<Context>) -> Response<Self, Void>
-    {
-        println!("wakeup");
-        unreachable!();
+    fn handle_event(&mut self, current_state: ClientStates, event: Event) -> ClientStates {
+        match current_state {
+            ClientStates::ReceivingData(current_id) => {
+//                println!("Receiving data: {}", current_id);
+                let data_packet = match self.client.receive_data().unwrap() {
+                    Some(data_packet) => data_packet,
+                    None => return ClientStates::ReceivingData(current_id),
+                };
+                if current_id == data_packet.block_id() {
+                    self.handle_event(ClientStates::SendAck(data_packet), event)
+                } else {
+                    println!("Unexpected packet id: got={}, expected={}",
+                             data_packet.block_id(), current_id);
+                    ClientStates::ReceivingData(current_id)
+                }
+            }
+            ClientStates::SendAck(data_packet) => {
+//                println!("Send ack: {}", data_packet.block_id());
+                if self.client.send_ack(data_packet.block_id()).unwrap().is_none() {
+                    self.poll.reregister(&self.client.socket, CLIENT, Ready::writable(), PollOpt::level()).unwrap();
+                    println!("Could not send ack for packet id={}", data_packet.block_id());
+                    ClientStates::SendAck(data_packet)
+                } else {
+                    self.writer.write_all(data_packet.data()).unwrap();
+                    if data_packet.data().len() < MAX_DATA_SIZE {
+                        println!("Transfer complete");
+                        ClientStates::Done
+                    } else {
+                        if event.kind().is_writable() {
+                            self.poll.reregister(&self.client.socket, CLIENT, Ready::readable(), PollOpt::level()).unwrap();
+                        }
+                        ClientStates::ReceivingData(data_packet.block_id() + 1)
+                    }
+                }
+            }
+            _ => unreachable!()
+        }
     }
 }
 
 pub fn get(path: &Path, mode: Mode, writer: &mut io::Write) {
     println!("starting ...");
     let remote_addr = "127.0.0.1:69".parse().unwrap();
-    let mut loop_creator = Loop::new(&Config::new()).unwrap();
     let any = str::FromStr::from_str("0.0.0.0:0").unwrap();
-    let socket = UdpSocket::bound(&any).unwrap();
-    let state = ClientState {
-        client: InternalClient::new(socket, remote_addr),
-        path: path,
-        mode: mode,
-        writer: writer,
-    };
-    loop_creator.add_machine_with(|scope| {
-        Client::new(scope, state)
-    }).unwrap();
-    let context = Context {
-        error: None,
-    };
-    loop_creator.run(context).unwrap();
+    let socket = UdpSocket::bind(&any).unwrap();
+    let poll =  Poll::new().unwrap();
+    let mut client = Client::new(poll, InternalClient::new(socket, remote_addr), path, mode, writer);
+    client.get();
 }
