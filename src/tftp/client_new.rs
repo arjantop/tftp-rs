@@ -109,13 +109,14 @@ impl PacketReceiver for InternalClient {
 //}
 
 
-enum ClientStates {
+enum ClientStates<'a> {
+    SendReadRequest(&'a Path, Mode),
     ReceivingData(u16),
     SendAck(DataPacketOctet<'static>),
     Done,
 }
 
-impl ClientStates {
+impl<'a> ClientStates<'a> {
     fn is_done(&self) -> bool {
         match self {
             &ClientStates::Done => true,
@@ -127,20 +128,16 @@ impl ClientStates {
 struct Client<'a> {
     poll: Poll,
     client: InternalClient,
-    path: &'a Path,
-    mode: Mode,
     writer: &'a mut io::Write,
 }
 
 const CLIENT: Token = Token(0);
 
 impl<'a> Client<'a> {
-    fn new(poll: Poll, client: InternalClient, path: &'a Path, mode: Mode, writer: &'a mut io::Write) -> Client<'a> {
+    fn new(poll: Poll, client: InternalClient, writer: &'a mut io::Write) -> Client<'a> {
         Client {
             poll: poll,
             client: client,
-            path: path,
-            mode: mode,
             writer: writer,
         }
     }
@@ -152,13 +149,11 @@ impl<'a> Client<'a> {
 }
 
 impl<'a> Client<'a> {
-    fn get(&mut self) {
+    fn get(&mut self, path: &Path, mode: Mode) {
         let mut events = Events::with_capacity(1024);
-        let mut current_state = ClientStates::ReceivingData(1);
+        let mut current_state = ClientStates::SendReadRequest(path, mode);
 
-        self.client.send_read_request(self.path.to_str().unwrap(), Mode::Octet).unwrap();
-        println!("Starting transfer ...");
-        self.poll.register(&self.client.socket, CLIENT, Ready::readable(), PollOpt::level()).unwrap();
+        self.poll.register(&self.client.socket, CLIENT, Ready::writable(), PollOpt::level()).unwrap();
 
         loop {
             self.poll.poll(&mut events, None).unwrap();
@@ -176,8 +171,14 @@ impl<'a> Client<'a> {
         }
     }
 
-    fn handle_event(&mut self, current_state: ClientStates, event: Event) -> ClientStates {
+    fn handle_event<'b>(&mut self, current_state: ClientStates, event: Event) -> ClientStates<'b> {
         match current_state {
+            ClientStates::SendReadRequest(path, mode) => {
+                self.client.send_read_request(path.to_str().unwrap(), mode).unwrap();
+                println!("Starting transfer ...");
+                self.poll.reregister(&self.client.socket, CLIENT, Ready::readable(), PollOpt::level()).unwrap();
+                ClientStates::ReceivingData(1)
+            }
             ClientStates::ReceivingData(current_id) => {
 //                println!("Receiving data: {}", current_id);
                 let data_packet = match self.client.receive_data().unwrap() {
@@ -222,6 +223,6 @@ pub fn get(path: &Path, mode: Mode, writer: &mut io::Write) {
     let any = str::FromStr::from_str("0.0.0.0:0").unwrap();
     let socket = UdpSocket::bind(&any).unwrap();
     let poll =  Poll::new().unwrap();
-    let mut client = Client::new(poll, InternalClient::new(socket, remote_addr), path, mode, writer);
-    client.get();
+    let mut client = Client::new(poll, InternalClient::new(socket, remote_addr), writer);
+    client.get(path, mode);
 }
