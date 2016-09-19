@@ -141,28 +141,23 @@ impl<'a> Client<'a> {
             writer: writer,
         }
     }
-
-    //    fn finish(scope: &mut Scope<Context>) -> Response<Self, Void> {
-    //        scope.shutdown_loop();
-    //        Response::done()
-    //    }
 }
 
 impl<'a> Client<'a> {
-    fn get(&mut self, path: &Path, mode: Mode) {
+    fn get(&mut self, path: &Path, mode: Mode) -> Result<()> {
         let mut events = Events::with_capacity(1024);
         let mut current_state = ClientStates::SendReadRequest(path, mode);
 
-        self.poll.register(&self.client.socket, CLIENT, Ready::writable(), PollOpt::level()).unwrap();
+        try!(self.poll.register(&self.client.socket, CLIENT, Ready::writable(), PollOpt::level()));
 
         loop {
-            self.poll.poll(&mut events, None).unwrap();
+            try!(self.poll.poll(&mut events, None));
             for event in events.iter() {
                 match event.token() {
                     CLIENT => {
-                        current_state = self.handle_event(current_state, event);
+                        current_state = try!(self.handle_event(current_state, event));
                         if current_state.is_done() {
-                            return;
+                            return Ok(())
                         }
                     }
                     _ => unreachable!(),
@@ -171,44 +166,44 @@ impl<'a> Client<'a> {
         }
     }
 
-    fn handle_event<'b>(&mut self, current_state: ClientStates, event: Event) -> ClientStates<'b> {
+    fn handle_event<'b>(&mut self, current_state: ClientStates, event: Event) -> Result<ClientStates<'b>> {
         match current_state {
             ClientStates::SendReadRequest(path, mode) => {
-                self.client.send_read_request(path.to_str().unwrap(), mode).unwrap();
+                try!(self.client.send_read_request(path.to_str().unwrap(), mode));
                 println!("Starting transfer ...");
-                self.poll.reregister(&self.client.socket, CLIENT, Ready::readable(), PollOpt::level()).unwrap();
-                ClientStates::ReceivingData(1)
+                try!(self.poll.reregister(&self.client.socket, CLIENT, Ready::readable(), PollOpt::level()));
+                Ok(ClientStates::ReceivingData(1))
             }
             ClientStates::ReceivingData(current_id) => {
 //                println!("Receiving data: {}", current_id);
-                let data_packet = match self.client.receive_data().unwrap() {
+                let data_packet = match try!(self.client.receive_data()) {
                     Some(data_packet) => data_packet,
-                    None => return ClientStates::ReceivingData(current_id),
+                    None => return Ok(ClientStates::ReceivingData(current_id)),
                 };
                 if current_id == data_packet.block_id() {
                     self.handle_event(ClientStates::SendAck(data_packet), event)
                 } else {
                     println!("Unexpected packet id: got={}, expected={}",
                              data_packet.block_id(), current_id);
-                    ClientStates::ReceivingData(current_id)
+                    Ok(ClientStates::ReceivingData(current_id))
                 }
             }
             ClientStates::SendAck(data_packet) => {
 //                println!("Send ack: {}", data_packet.block_id());
-                if self.client.send_ack(data_packet.block_id()).unwrap().is_none() {
-                    self.poll.reregister(&self.client.socket, CLIENT, Ready::writable(), PollOpt::level()).unwrap();
+                if try!(self.client.send_ack(data_packet.block_id())).is_none() {
+                    try!(self.poll.reregister(&self.client.socket, CLIENT, Ready::writable(), PollOpt::level()));
                     println!("Could not send ack for packet id={}", data_packet.block_id());
-                    ClientStates::SendAck(data_packet)
+                    Ok(ClientStates::SendAck(data_packet))
                 } else {
-                    self.writer.write_all(data_packet.data()).unwrap();
+                    try!(self.writer.write_all(data_packet.data()));
                     if data_packet.data().len() < MAX_DATA_SIZE {
                         println!("Transfer complete");
-                        ClientStates::Done
+                        Ok(ClientStates::Done)
                     } else {
                         if event.kind().is_writable() {
-                            self.poll.reregister(&self.client.socket, CLIENT, Ready::readable(), PollOpt::level()).unwrap();
+                            try!(self.poll.reregister(&self.client.socket, CLIENT, Ready::readable(), PollOpt::level()));
                         }
-                        ClientStates::ReceivingData(data_packet.block_id() + 1)
+                        Ok(ClientStates::ReceivingData(data_packet.block_id() + 1))
                     }
                 }
             }
