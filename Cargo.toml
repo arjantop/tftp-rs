@@ -1,7 +1,7 @@
 [package]
 name = "tftp"
 version = "0.1.0-pre"
-authors = ["arjan.top@gmail.com"]
+authors = ["Arjan Topolovec <arjan.top@gmail.com>"]
 
 [lib]
 name = "tftp"
@@ -10,10 +10,6 @@ path = "src/tftp/lib.rs"
 [[example]]
 name = "get"
 path = "examples/client/get.rs"
-
-[[example]]
-name = "get-new"
-path = "examples/client/get_new.rs"
 
 [dependencies]
 byteorder = "*"

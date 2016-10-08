@@ -23,4 +23,3 @@ pub mod packet;
 pub mod netascii;
 
 pub mod client;
-pub mod client_new;
