@@ -1,25 +1,22 @@
 [package]
-
 name = "tftp"
 version = "0.1.0-pre"
-authors = ["arjan.top@gmail.com"]
+authors = ["Arjan Topolovec <arjan.top@gmail.com>"]
 
 [lib]
-
 name = "tftp"
 path = "src/tftp/lib.rs"
 
 [[example]]
-
 name = "get"
 path = "examples/client/get.rs"
 
 [dependencies]
-
 byteorder = "*"
-mio = "*"
+mio = "0.6"
+void = "*"
+quick-error = "*"
 
 [dev-dependencies]
-
 quickcheck = "*"
 rand = "*"
