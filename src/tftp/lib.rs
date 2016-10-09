@@ -21,5 +21,6 @@ extern crate mio;
 
 pub mod packet;
 pub mod netascii;
+mod decodedpacket;
 
 pub mod client;

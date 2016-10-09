@@ -208,9 +208,6 @@ pub enum RequestPacket<'a> {
     WriteRequest(NetasciiString<'a>, Mode),
 }
 
-// FIXME
-unsafe impl<'a> Send for RequestPacket<'a> {}
-
 impl<'a> RequestPacket<'a> {
     /// Creates a new read request.
     ///
@@ -311,9 +308,6 @@ pub struct AckPacket {
     block_id: u16,
 }
 
-// FIXME
-unsafe impl Send for AckPacket {}
-
 impl AckPacket {
     /// Creates a new acknowledgment package for data block with number `block_id`.
     pub fn new(block_id: u16) -> AckPacket {
@@ -367,9 +361,6 @@ pub struct DataPacketOctet<'a> {
     data: Cow<'a, [u8]>,
     len: usize,
 }
-
-// FIXME
-unsafe impl<'a> Send for DataPacketOctet<'a> {}
 
 impl<'a> DataPacketOctet<'a> {
     /// Creates a data packet with a given id from provided slice od bytes.
@@ -458,9 +449,6 @@ pub struct ErrorPacket<'a> {
     error: Error,
     message: NetasciiString<'a>,
 }
-
-// FIXME
-unsafe impl<'a> Send for ErrorPacket<'a> {}
 
 impl<'a> fmt::Display for ErrorPacket<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

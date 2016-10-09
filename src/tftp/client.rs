@@ -11,6 +11,7 @@ use std::str;
 
 use packet::{Mode, RequestPacket, DataPacketOctet, AckPacket, ErrorPacket,
     EncodePacket, RawPacket, Opcode};
+use decodedpacket::DecodedPacket;
 
 use mio::udp::UdpSocket;
 use mio::{Events, Poll, PollOpt, Event, Token, Ready};
@@ -43,7 +44,7 @@ trait PacketSender {
 }
 
 trait PacketReceiver {
-    fn receive_data(&mut self) -> Result<Option<DataPacketOctet<'static>>>;
+    fn receive_data(&mut self) -> Result<Option<DecodedPacket<DataPacketOctet<'static>>>>;
 }
 
 struct InternalClient {
@@ -74,7 +75,7 @@ impl PacketSender for InternalClient {
 }
 
 impl PacketReceiver for InternalClient {
-    fn receive_data(&mut self) -> Result<Option<DataPacketOctet<'static>>> {
+    fn receive_data(&mut self) -> Result<Option<DecodedPacket<DataPacketOctet<'static>>>> {
         let mut buf = vec![0; MAX_DATA_SIZE + 4];
         let result = try!(self.socket.recv_from(&mut buf));
         let p = result.map(|(n, from)| {
@@ -83,7 +84,7 @@ impl PacketReceiver for InternalClient {
         }).map(|packet| {
             match packet.opcode() {
                 Some(Opcode::DATA) => {
-                    packet.decode::<DataPacketOctet>().unwrap()
+                    DecodedPacket::decode(packet).unwrap()
                 },
                 _ => unimplemented!(),
             }
@@ -95,7 +96,7 @@ impl PacketReceiver for InternalClient {
 enum ClientStates<'a> {
     SendReadRequest(&'a Path, Mode),
     ReceivingData(u16),
-    SendAck(DataPacketOctet<'static>),
+    SendAck(DecodedPacket<DataPacketOctet<'static>>),
     Done,
 }
 
