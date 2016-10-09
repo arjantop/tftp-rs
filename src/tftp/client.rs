@@ -8,6 +8,7 @@ use std::path::Path;
 use std::net::SocketAddr;
 use std::result;
 use std::str;
+use std::mem;
 
 use packet::{Mode, RequestPacket, DataPacketOctet, AckPacket, ErrorPacket,
     EncodePacket, RawPacket, Opcode};
@@ -40,7 +41,7 @@ type Result<T> = result::Result<T, Error>;
 
 trait PacketSender {
     fn send_read_request(&self, path: &str, mode: Mode) -> Result<()>;
-    fn send_ack(&self, block_id: u16) -> Result<Option<()>>;
+    fn send_ack(&mut self, block_id: u16) -> Result<Option<()>>;
 }
 
 trait PacketReceiver {
@@ -50,11 +51,22 @@ trait PacketReceiver {
 struct InternalClient {
     socket: UdpSocket,
     remote_addr: SocketAddr,
+    buffer_data: Option<Vec<u8>>,
+    buffer_ack: Vec<u8>,
 }
 
 impl InternalClient {
     fn new(socket: UdpSocket, remote_addr: SocketAddr) -> InternalClient {
-        InternalClient { socket: socket, remote_addr: remote_addr }
+        InternalClient {
+            socket: socket,
+            remote_addr: remote_addr,
+            buffer_data: Some(vec![0; MAX_DATA_SIZE + 4]),
+            buffer_ack: vec![0; MAX_DATA_SIZE + 4],
+        }
+    }
+
+    fn put_buffer_data(&mut self, buf: Vec<u8>) {
+        self.buffer_data = Some(buf);
     }
 }
 
@@ -66,17 +78,22 @@ impl PacketSender for InternalClient {
         self.socket.send_to(&buf, &self.remote_addr).map(|_| ()).map_err(From::from)
     }
 
-    fn send_ack(&self, block_id: u16) -> Result<Option<()>> {
+    fn send_ack(&mut self, block_id: u16) -> Result<Option<()>> {
+        let buf = mem::replace(&mut self.buffer_ack, Vec::new());
         let ack = AckPacket::new(block_id);
-        let encoded = ack.encode();
-        let buf = encoded.packet_buf();
-        self.socket.send_to(&buf, &self.remote_addr).map(|opt| opt.map(|_| ())).map_err(From::from)
+        let encoded = ack.encode_using(buf);
+        let result = {
+            let buf = encoded.packet_buf();
+            self.socket.send_to(&buf, &self.remote_addr).map(|opt| opt.map(|_| ())).map_err(From::from)
+        };
+        self.buffer_ack = encoded.get_buffer();
+        result
     }
 }
 
 impl PacketReceiver for InternalClient {
     fn receive_data(&mut self) -> Result<Option<DecodedPacket<DataPacketOctet<'static>>>> {
-        let mut buf = vec![0; MAX_DATA_SIZE + 4];
+        let mut buf = mem::replace(&mut self.buffer_data, None).unwrap_or(vec![0; MAX_DATA_SIZE + 4]);
         let result = try!(self.socket.recv_from(&mut buf));
         let p = result.map(|(n, from)| {
             self.remote_addr = from;
@@ -178,14 +195,17 @@ impl<'a> Client<'a> {
                     Ok(ClientStates::SendAck(data_packet))
                 } else {
                     try!(self.writer.write_all(data_packet.data()));
-                    if data_packet.data().len() < MAX_DATA_SIZE {
+                    let data_len = data_packet.data().len();
+                    let next_id = data_packet.block_id() + 1;
+                    self.client.put_buffer_data(data_packet.into_inner());
+                    if data_len < MAX_DATA_SIZE {
                         println!("Transfer complete");
                         Ok(ClientStates::Done)
                     } else {
                         if event.kind().is_writable() {
                             try!(self.poll.reregister(&self.client.socket, CLIENT, Ready::readable(), PollOpt::level()));
                         }
-                        Ok(ClientStates::ReceivingData(data_packet.block_id() + 1))
+                        Ok(ClientStates::ReceivingData(next_id))
                     }
                 }
             }

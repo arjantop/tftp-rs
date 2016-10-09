@@ -20,7 +20,7 @@ impl<P: DecodePacket<'static>> DecodedPacket<P> {
         })
     }
 
-    fn into_inner(self) -> Vec<u8> {
+    pub fn into_inner(self) -> Vec<u8> {
         self.raw.get_buffer()
     }
 }
