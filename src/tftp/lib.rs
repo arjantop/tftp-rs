@@ -17,6 +17,8 @@
 #![cfg_attr(test, feature(test))]
 
 extern crate mio;
+#[macro_use(try_nb)] extern crate tokio_core;
+extern crate futures;
 #[macro_use(quick_error)] extern crate quick_error;
 
 pub mod packet;
@@ -24,3 +26,4 @@ pub mod netascii;
 mod decodedpacket;
 
 pub mod client;
+pub mod server;

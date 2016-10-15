@@ -408,7 +408,7 @@ impl<'a> Packet for DataPacketOctet<'a> {
     }
 
     fn len(&self) -> usize {
-        4 + self.data.len()
+        4 + self.len
     }
 }
 
@@ -434,7 +434,7 @@ impl<'a> EncodePacket for DataPacketOctet<'a> {
         let mut b = Cursor::new(buf);
         b.write_u16::<BigEndian>(Opcode::DATA as u16).unwrap();
         b.write_u16::<BigEndian>(self.block_id).unwrap();
-        b.write(&self.data[..]).unwrap();
+        b.write(&self.data[..self.len]).unwrap();
 
         RawPacket {
             buf: b.into_inner(),

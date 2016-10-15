@@ -11,11 +11,17 @@ path = "src/tftp/lib.rs"
 name = "get"
 path = "examples/client/get.rs"
 
+[[example]]
+name = "server"
+path = "examples/server/server.rs"
+
 [dependencies]
 byteorder = "*"
 mio = "0.6"
 void = "*"
 quick-error = "*"
+futures = "0.1"
+tokio-core = "0.1"
 
 [dev-dependencies]
 quickcheck = "*"
